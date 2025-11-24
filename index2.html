@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Fluid / Air Bearing Analysis – K, C, ε, p(θ,z)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        :root {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            line-height: 1.4;
+        }
+
+        body {
+            margin: 0;
+            background: #f5f5f7;
+            color: #111827;
+        }
+
+        header {
+            padding: 1rem 2rem;
+            background: #111827;
+            color: #f9fafb;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.25rem;
+        }
+
+        header span {
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }
+
+        main {
+            padding: 1.5rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+            gap: 1rem;
+        }
+
+        .card {
+            background: #ffffff;
+            border-radius: 0.75rem;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07);
+            padding: 1rem 1.25rem;
+        }
+
+        .card h2 {
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+        }
+
+        .card h3 {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.95rem;
+        }
+
+        .section-caption {
+            font-size: 0.8rem;
+            color: #6b7280;
+            margin-bottom: 0.75rem;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0.75rem 1rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.8rem;
+            color: #4b5563;
+            margin-bottom: 0.2rem;
+        }
+
+        input[type="number"],
+        select {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 0.35rem 0.4rem;
+            border-radius: 0.5rem;
+            border: 1px solid #d1d5db;
+            font-size: 0.85rem;
+            background: #f9fafb;
+        }
+
+        .inline-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        button {
+            border-radius: 0.6rem;
+            border: none;
+            padding: 0.45rem 0.9rem;
+            font-size: 0.85rem;
+            cursor: pointer;
+            background: #2563eb;
+            color: #f9fafb;
+            box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4);
+        }
+
+        button.secondary {
+            background: #e5e7eb;
+            color: #111827;
+            box-shadow: none;
+        }
+
+        button:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
+        }
+
+        .output-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-top: 0.75rem;
+            font-size: 0.85rem;
+        }
+
+        .pill {
+            background: #eff6ff;
+            color: #1d4ed8;
+            padding: 0.3rem 0.6rem;
+            border-radius: 999px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+
+        th,
+        td {
+            border: 1px solid #e5e7eb;
+            padding: 0.35rem 0.5rem;
+            text-align: center;
+        }
+
+        th {
+            background: #f3f4f6;
+        }
+
+        .matrix-label {
+            font-size: 0.8rem;
+            color: #6b7280;
+            margin-bottom: 0.2rem;
+        }
+
+        canvas {
+            width: 100%;
+            max-width: 100%;
+            border-radius: 0.5rem;
+            border: 1px solid #e5e7eb;
+            background: #f9fafb;
+        }
+
+        .tag-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.3rem;
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        .tag {
+            padding: 0.15rem 0.4rem;
+            background: #e5e7eb;
+            border-radius: 999px;
+            color: #374151;
+        }
+
+        footer {
+            padding: 0.75rem 1.5rem 1.25rem;
+            font-size: 0.75rem;
+            color: #6b7280;
+            text-align: center;
+        }
+
+        .two-cols {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+        }
+
+        @media (max-width: 900px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div>
+            <h1>Task 5 – Fluid / Air Bearing Designer</h1>
+            <span>K, C matrices • Eccentricity • Pressure field • Rotor coupling</span>
+        </div>
+        <button class="secondary" id="exportBtn">Export PDF</button>
+    </header>
+
+    <main>
+        <section class="grid">
+            <section class="card">
+                <h2>1. Bearing and operating conditions</h2>
+                <div class="form-grid">
+                    <div>
+                        <label for="bearingType">Bearing type</label>
+                        <select id="bearingType">
+                            <option value="journal">Journal bearing</option>
+
+                        </select>
+                    </div>
+                    <div>
+                        <label for="fluidType">Fluid</label>
+                        <select id="fluidType">
+                            <option value="oil">Oil (incompressible)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="radius">Radius R [m]</label>
+                        <input id="radius" type="number" step="0.0001" value="0.05">
+                    </div>
+                    <div>
+                        <label for="length">Length L [m]</label>
+                        <input id="length" type="number" step="0.0001" value="0.1">
+                    </div>
+                    <div>
+                        <label for="clearance">Radial clearance c [m]</label>
+                        <input id="clearance" type="number" step="1e-6" value="0.0001">
+                    </div>
+                    <div>
+                        <label for="speedRpm">Speed n [rpm]</label>
+                        <input id="speedRpm" type="number" step="1" value="1500">
+                    </div>
+                    <div>
+                        <label for="load">Static load W [N]</label>
+                        <input id="load" type="number" step="1" value="1000">
+                    </div>
+                    <div>
+                        <label for="viscosity">Dynamic viscosity μ [Pa·s]</label>
+                        <input id="viscosity" type="number" step="0.001" value="0.1">
+                    </div>
+
+                </div>
+
+                <div class="inline-row">
+                    <button id="runBtn">Run analysis</button>
+                    <button id="friswellBtn" class="secondary">Friswell example</button>
+                    <span class="section-caption" id="statusText">Status: idle</span>
+                </div>
+
+                <div class="output-row">
+                    <div class="pill" id="eccPill">ε = –</div>
+
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>2. Pressure field and stability</h2>
+
+                <h3>2.1 Pressure field p(θ, z)</h3>
+                <canvas id="pressureCanvas" width="360" height="220"></canvas>
+
+                <!-- <h3>2.2 Stability map</h3>
+                <div class="two-cols">
+                    <div>
+                        <label for="rotorModel">Rotor model</label>
+                        <select id="rotorModel">
+                            <option value="none">None</option>
+                            <option value="ross">Ross 4-DOF shaft</option>
+                            <option value="friswell681">Friswell example 6.8.1</option>
+                        </select>
+                    </div>
+                    <div>
+                        <canvas id="stabilityCanvas" width="360" height="160"></canvas>
+                    </div>
+                </div> -->
+
+                <!-- <div class="tag-list">
+                    <span class="tag">Reynolds</span>
+                    <span class="tag">K, C matrices</span>
+                    <span class="tag">Rotor–bearing</span>
+                </div> -->
+            </section>
+        </section>
+
+        <section class="card" style="margin-top: 1rem;">
+            <h2>3. Bearing stiffness and damping matrices</h2>
+
+            <div class="two-cols">
+                <div>
+                    <p class="matrix-label">K matrix [N/m]</p>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>u</th>
+                                <th>v</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <th>u</th>
+                                <td id="k11">–</td>
+                                <td id="k12">–</td>
+                            </tr>
+                            <tr>
+                                <th>v</th>
+                                <td id="k21">–</td>
+                                <td id="k22">–</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div>
+                    <p class="matrix-label">C matrix [N·s/m]</p>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>u</th>
+                                <th>v</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <th>u</th>
+                                <td id="c11">–</td>
+                                <td id="c12">–</td>
+                            </tr>
+                            <tr>
+                                <th>v</th>
+                                <td id="c21">–</td>
+                                <td id="c22">–</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        Task 5 – Fluid / Air Bearing Designer
+    </footer>
+
+    <script>
+        function fmt(x) {
+            if (!isFinite(x)) return "–";
+            if (Math.abs(x) < 1e-3 || Math.abs(x) > 1e4) return x.toExponential(2);
+            return x.toFixed(3);
+        }
+
+        // function updateRegimePill(eps, fluidType) {
+        //     const regimePill = document.getElementById("regimePill");
+        //     let regime = "light";
+        //     if (eps > 0.3) regime = "medium";
+        //     if (eps > 0.7) regime = "high";
+        //     if (fluidType === "air") {
+        //         regime += " (air)";
+        //     } else {
+        //         regime += " (oil)";
+        //     }
+        //     regimePill.textContent = "Regime: " + regime;
+        // }
+
+        function drawPressureFieldFromData(canvas, theta, z, p) {
+            const ctx = canvas.getContext("2d");
+            const W = canvas.width;
+            const H = canvas.height;
+
+            const Ntheta = theta.length;
+            const Nz = z.length;
+
+            let pMin = Infinity;
+            let pMax = -Infinity;
+            for (let i = 0; i < Ntheta; i++) {
+                for (let j = 0; j < Nz; j++) {
+                    const val = p[i][j];
+                    if (val < pMin) pMin = val;
+                    if (val > pMax) pMax = val;
+                }
+            }
+            if (!(isFinite(pMin) && isFinite(pMax)) || pMax === pMin) {
+                ctx.clearRect(0, 0, W, H);
+                return;
+            }
+
+            const img = ctx.createImageData(W, H);
+            for (let y = 0; y < H; y++) {
+                for (let x = 0; x < W; x++) {
+                    const iTheta = Math.min(Ntheta - 1, Math.floor(x / W * Ntheta));
+                    const jZ = Math.min(Nz - 1, Math.floor(y / H * Nz));
+
+                    const val = p[iTheta][jZ];
+                    const t = (val - pMin) / (pMax - pMin); // 0..1
+
+                    // simple blue–red colormap
+                    const r = Math.floor(255 * t);
+                    const g = Math.floor(255 * (1 - Math.abs(t - 0.5) * 2));
+                    const b = Math.floor(255 * (1 - t));
+
+                    const idx = 4 * (y * W + x);
+                    img.data[idx] = r;
+                    img.data[idx + 1] = g;
+                    img.data[idx + 2] = b;
+                    img.data[idx + 3] = 255;
+                }
+            }
+            ctx.putImageData(img, 0, 0);
+        }
+
+
+
+        document.getElementById("friswellBtn").addEventListener("click", () => {
+            // Friswell example values
+            const diameter = 0.1;      // m
+            const length = 0.03;     // m
+            const load = 525;      // N
+            const clearance = 0.1e-3;   // m
+            const viscosity = 0.1;      // Pa·s
+            const speed_rpm = 1500;     // rpm
+
+            // Your UI uses radius, not diameter
+            const radius = diameter / 2;
+
+            // Populate inputs
+            document.getElementById("radius").value = radius;
+            document.getElementById("length").value = length;
+            document.getElementById("clearance").value = clearance;
+            document.getElementById("load").value = load;
+            document.getElementById("viscosity").value = viscosity;
+            document.getElementById("speedRpm").value = speed_rpm;
+
+            // Optional status update
+            document.getElementById("statusText").textContent = "Status: Friswell example loaded";
+        });
+
+        document.getElementById("runBtn").addEventListener("click", async () => {
+            const bearingType = document.getElementById("bearingType").value;
+            const fluidType = document.getElementById("fluidType").value;
+            const R = Number(document.getElementById("radius").value);
+            const L = Number(document.getElementById("length").value);
+            const c = Number(document.getElementById("clearance").value);
+            const n_rpm = Number(document.getElementById("speedRpm").value);
+            const W = Number(document.getElementById("load").value);
+            const mu = Number(document.getElementById("viscosity").value);
+
+
+            const status = document.getElementById("statusText");
+            status.textContent = "Status: running…";
+
+            try {
+                const diameter = 2 * R;
+                const payload = {
+                    bearingType,
+                    fluidType,
+                    diameter,
+                    length: L,
+                    clearance: c,
+                    load: W,
+                    viscosity: mu,
+                    speed_rpm: n_rpm,
+
+                };
+
+                const response = await fetch("http://127.0.0.1:5000/api/analyze", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error("Backend error: " + response.status);
+                }
+
+                const data = await response.json();
+
+                const eps = data.eps;
+
+                const K = data.K;
+                const C = data.C;
+                const theta = data.theta;
+                const z = data.z;
+                const p = data.p;
+
+                document.getElementById("eccPill").textContent = "ε = " + fmt(eps);
+
+                // updateRegimePill(eps, fluidType);
+
+                document.getElementById("k11").textContent = fmt(K[0][0]);
+                document.getElementById("k12").textContent = fmt(K[0][1]);
+                document.getElementById("k21").textContent = fmt(K[1][0]);
+                document.getElementById("k22").textContent = fmt(K[1][1]);
+
+                document.getElementById("c11").textContent = fmt(C[0][0]);
+                document.getElementById("c12").textContent = fmt(C[0][1]);
+                document.getElementById("c21").textContent = fmt(C[1][0]);
+                document.getElementById("c22").textContent = fmt(C[1][1]);
+
+                const pressureCanvas = document.getElementById("pressureCanvas");
+                drawPressureFieldFromData(pressureCanvas, theta, z, p);
+
+                //const rotorModel = document.getElementById("rotorModel").value;
+                // const stabilityCanvas = document.getElementById("stabilityCanvas");
+                // drawStabilityMap(stabilityCanvas, rotorModel, eps);
+
+                status.textContent = "Status: analysis complete";
+            } catch (err) {
+                console.error(err);
+                status.textContent = "Status: error";
+            }
+        });
+
+        // document.getElementById("rotorModel").addEventListener("change", () => {
+        //     const rotorModel = document.getElementById("rotorModel").value;
+        //     const eccText = document.getElementById("eccPill").textContent;
+        //     const eps = parseFloat(eccText.split("=").pop()) || 0.3;
+        //     const stabilityCanvas = document.getElementById("stabilityCanvas");
+        //     drawStabilityMap(stabilityCanvas, rotorModel, eps);
+        // });
+
+        document.getElementById("exportBtn").addEventListener("click", () => {
+            window.print();
+        });
+
+        drawPressureFieldFromData(
+            document.getElementById("pressureCanvas"),
+            [0, 1],
+            [0, 1],
+            [[0, 0], [0, 0]]
+        );
+        // drawStabilityMap(document.getElementById("stabilityCanvas"), "none", 0.3);
+
+    </script>
+
+</body>
+
+</html>
