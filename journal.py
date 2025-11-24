@@ -1,20 +1,9 @@
 import numpy as np
-from typing import Tuple
-
 from flask import Flask, request, jsonify
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
-from flask_cors import CORS
 
-app = Flask(__name__)
-
-# Allow any origin for /api/* (local dev)
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=False)
-
-# =========================================================
-# Analysis functions (your code)
-# =========================================================
-
+from typing import Tuple
 
 def compute_ke_ce(eps: float, fc: float = 1.0, Omega: float = 1.0) -> Tuple[np.ndarray, np.ndarray]:
     eps = float(eps)
@@ -167,72 +156,6 @@ def solve_journal_bearing_pressure(
 
     return p, Theta, Z, h
 
-# =========================================================
-# API route
-# =========================================================
-
-
-@app.route("/api/analyze", methods=["POST", "OPTIONS"])
-def api_analyze():
-    if request.method == "OPTIONS":
-        # Preflight – Flask-CORS will attach the proper headers
-        return "", 200
-
-    data = request.get_json(force=True)
-    try:
-        bearing_type = data.get("bearingType", "journal")
-        fluid_type = data.get("fluidType", "oil")
-
-        diameter = float(data["diameter"])
-        length = float(data["length"])
-        clearance = float(data["clearance"])
-        load = float(data["load"])
-        viscosity = float(data["viscosity"])
-        speed_rpm = float(data["speed_rpm"])
-
-        eps, Ss, S = compute_eps(
-            diameter=diameter,
-            length=length,
-            load=load,
-            clearance=clearance,
-            viscosity=viscosity,
-            speed_rpm=speed_rpm,
-        )
-
-        speed_rad = speed_rpm * 2.0 * np.pi / 60.0
-        fc = load if load != 0.0 else 1.0
-        Ke, Ce = compute_ke_ce(eps, fc=fc, Omega=speed_rad)
-
-        p, Theta, Z, h = solve_journal_bearing_pressure(
-            viscosity=viscosity,
-            speed_rad=speed_rad,
-            diameter=diameter,
-            length=length,
-            clearance=clearance,
-            eps=eps,
-            Ntheta=80,
-            Nz=40,
-        )
-
-        theta_vec = Theta[:, 0]
-        z_vec = Z[0, :]
-
-        result = {
-            "eps": float(eps),
-            "K": Ke.tolist(),
-            "C": Ce.tolist(),
-            "theta": theta_vec.tolist(),
-            "z": z_vec.tolist(),
-            "p": p.tolist(),
-        }
-        return jsonify(result)
-
-    except KeyError as e:
-        return jsonify({"error": f"missing field: {e}"}), 400
-    except Exception as e:
-        print("Error in /api/analyze:", e)
-        return jsonify({"error": str(e)}), 500
-
 
 def FrFt_bar(Lambda_star, L_over_D=1.0):
     """
@@ -327,6 +250,21 @@ def compute_lambda(mu, omega, pa, R, c):
     """
     return (6 * mu * omega * (R / c)**2) / pa
 
+def compute_eps(diameter: float, length: float, load: float, clearance: float,
+                viscosity: float, speed_rpm: float) -> Tuple[float, float, float]:
 
-if __name__ == "__main__":
-    app.run(debug=True)
+    # Convert speed to rad/s
+    omega = speed_rpm * 2 * np.pi / 60  # rad/s
+
+    # Calculate modified Sommerfeld number (Ss)
+    Ss = (diameter * omega * viscosity * length**3) / (8 * load * clearance**2)
+
+    # Calculate Sommerfeld number (S)
+    S = Ss / np.pi * ((diameter / length)**2)
+
+    # Solve quartic equation for eccentricity squared (eps^2)
+    # Quartic equation coefficients from the problem statement
+    eps_squared = solve_quartic(Ss)
+    eps = np.sqrt(eps_squared)
+    
+    return eps, Ss, S
