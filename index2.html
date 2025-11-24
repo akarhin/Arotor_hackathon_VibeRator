@@ -173,7 +173,8 @@
             max-width: 100%;
             border-radius: 0.5rem;
             border: 1px solid #e5e7eb;
-            background: #f9fafb;
+            background: #111827;
+            /* darker background */
         }
 
         .tag-list {
@@ -215,8 +216,8 @@
 <body>
     <header>
         <div>
-            <h1>Task 5 – Fluid / Air Bearing Designer</h1>
-            <span>K, C matrices • Eccentricity • Pressure field • Rotor coupling</span>
+            <h1>Fluid Bearing Designer </h1>
+            <span>K, C matrices • Eccentricity • Pressure field</span>
         </div>
         <button class="secondary" id="exportBtn">Export PDF</button>
     </header>
@@ -282,7 +283,7 @@
                 <h2>2. Pressure field and stability</h2>
 
                 <h3>2.1 Pressure field p(θ, z)</h3>
-                <canvas id="pressureCanvas" width="360" height="220"></canvas>
+                <canvas id="pressureCanvas" width="900" height="450"></canvas>
 
                 <!-- <h3>2.2 Stability map</h3>
                 <div class="two-cols">
@@ -393,45 +394,227 @@
             const W = canvas.width;
             const H = canvas.height;
 
-            const Ntheta = theta.length;
+            // ---------- Convert theta to degrees and shift ----------
+            const thetaDeg = theta.map(t => {
+                let d = t * 180 / Math.PI;
+                if (d > 180) d -= 360;
+                return d;
+            });
+
+            // ---------- Sort theta and pressure ----------
+            const indices = thetaDeg.map((_, i) => i).sort((i, j) => thetaDeg[i] - thetaDeg[j]);
+            const thetaSorted = indices.map(i => thetaDeg[i]);
+            const pSorted = indices.map(i => p[i]);
+
+            const Ntheta = thetaSorted.length;
             const Nz = z.length;
 
+            // ---------- Min / Max pressure ----------
             let pMin = Infinity;
             let pMax = -Infinity;
             for (let i = 0; i < Ntheta; i++) {
                 for (let j = 0; j < Nz; j++) {
-                    const val = p[i][j];
+                    const val = pSorted[i][j];
                     if (val < pMin) pMin = val;
                     if (val > pMax) pMax = val;
                 }
             }
-            if (!(isFinite(pMin) && isFinite(pMax)) || pMax === pMin) {
+            if (!isFinite(pMin) || !isFinite(pMax) || pMax === pMin) {
                 ctx.clearRect(0, 0, W, H);
                 return;
             }
 
-            const img = ctx.createImageData(W, H);
-            for (let y = 0; y < H; y++) {
-                for (let x = 0; x < W; x++) {
-                    const iTheta = Math.min(Ntheta - 1, Math.floor(x / W * Ntheta));
-                    const jZ = Math.min(Nz - 1, Math.floor(y / H * Nz));
+            // ---------- Layout: plot area + colorbar ----------
+            const leftMargin = 70;
+            const rightMargin = 120;    // Wider to fit color bar + labels
+            const topMargin = 40;
+            const bottomMargin = 40;
 
-                    const val = p[iTheta][jZ];
-                    const t = (val - pMin) / (pMax - pMin); // 0..1
+            const plotW = W - leftMargin - rightMargin;
+            const plotH = H - topMargin - bottomMargin;
 
-                    // simple blue–red colormap
-                    const r = Math.floor(255 * t);
-                    const g = Math.floor(255 * (1 - Math.abs(t - 0.5) * 2));
-                    const b = Math.floor(255 * (1 - t));
+            const colorBarWidth = 18;
+            const colorBarX = leftMargin + plotW + 15;
+            const colorBarY = topMargin;
 
-                    const idx = 4 * (y * W + x);
+            // ---------- Background ----------
+            ctx.clearRect(0, 0, W, H);
+            ctx.fillStyle = "#111827";     // dark background so zeros stand out
+            ctx.fillRect(0, 0, W, H);
+
+            // ---------- Heatmap with bilinear interpolation ----------
+            const img = ctx.createImageData(plotW, plotH);
+
+            // color mapping: diverging, with p ≈ 0 in a bright mid color
+            function colormap(t) {
+                // clamp 0..1
+                t = Math.max(0, Math.min(1, t));
+                // map t to [-1,1] around 0
+                const x = 2 * t - 1;
+
+                // simple diverging: blue (neg) → light/white (0) → red (pos)
+                let r, g, b;
+                if (x < 0) {
+                    // negative: mix blue with white
+                    const a = -x;            // 0..1
+                    r = 255 * (1 - a);       // more white as x→0
+                    g = 255 * (1 - a);
+                    b = 255;
+                } else {
+                    // positive: mix red with white
+                    const a = x;             // 0..1
+                    r = 255;
+                    g = 255 * (1 - a);
+                    b = 255 * (1 - a);
+                }
+                return [Math.round(r), Math.round(g), Math.round(b)];
+            }
+
+            for (let py = 0; py < plotH; py++) {
+                // map y to z-index (0..Nz-1)
+                const jFloat = (py / (plotH - 1)) * (Nz - 1);
+                const j0 = Math.floor(jFloat);
+                const j1 = Math.min(j0 + 1, Nz - 1);
+                const ty = jFloat - j0;
+
+                for (let px = 0; px < plotW; px++) {
+                    // map x to theta-index (0..Ntheta-1)
+                    const iFloat = (px / (plotW - 1)) * (Ntheta - 1);
+                    const i0 = Math.floor(iFloat);
+                    const i1 = Math.min(i0 + 1, Ntheta - 1);
+                    const tx = iFloat - i0;
+
+                    const p00 = pSorted[i0][j0];
+                    const p10 = pSorted[i1][j0];
+                    const p01 = pSorted[i0][j1];
+                    const p11 = pSorted[i1][j1];
+
+                    const pTop = p00 * (1 - tx) + p10 * tx;
+                    const pBot = p01 * (1 - tx) + p11 * tx;
+                    const val = pTop * (1 - ty) + pBot * ty;
+
+                    // normalised 0..1
+                    const t = (val - pMin) / (pMax - pMin);
+                    const [r, g, b] = colormap(t);
+
+                    const idx = 4 * (py * plotW + px);
                     img.data[idx] = r;
                     img.data[idx + 1] = g;
                     img.data[idx + 2] = b;
                     img.data[idx + 3] = 255;
                 }
             }
-            ctx.putImageData(img, 0, 0);
+
+            // draw heatmap into plot area
+            ctx.putImageData(img, leftMargin, topMargin);
+
+            // ---------- Axes ----------
+            ctx.strokeStyle = "#e5e7eb";
+            ctx.lineWidth = 1.0;
+
+            // x-axis
+            ctx.beginPath();
+            ctx.moveTo(leftMargin, H - bottomMargin);
+            ctx.lineTo(leftMargin + plotW, H - bottomMargin);
+            ctx.stroke();
+
+            // y-axis
+            ctx.beginPath();
+            ctx.moveTo(leftMargin, topMargin);
+            ctx.lineTo(leftMargin, H - bottomMargin);
+            ctx.stroke();
+
+            ctx.fillStyle = "#f9fafb";  // light text on dark background
+            ctx.font = "12px system-ui";
+
+            // θ ticks: -180, -90, 0, 90, 180
+            const ticksX = [-180, -90, 0, 90, 180];
+            ticksX.forEach(val => {
+                const tx = (val + 180) / 360;              // map −180..180 → 0..1
+                const x = leftMargin + tx * plotW;
+                const y = H - bottomMargin;
+
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(x, y + 5);
+                ctx.stroke();
+
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.fillText(val.toString(), x, y + 7);
+            });
+
+            // z ticks: zMin, maybe 0, zMax
+            const zMin = z[0];
+            const zMax = z[z.length - 1];
+            const ticksZ = [zMin];
+            if (zMin < 0 && zMax > 0) ticksZ.push(0);
+            ticksZ.push(zMax);
+
+            ticksZ.forEach(val => {
+                const ty = (val - zMin) / (zMax - zMin);   // 0..1
+                const y = (H - bottomMargin) - ty * plotH;
+                const x = leftMargin;
+
+                ctx.beginPath();
+                ctx.moveTo(x - 5, y);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+
+                ctx.textAlign = "right";
+                ctx.textBaseline = "middle";
+                ctx.fillText(val.toFixed(3), x - 8, y);
+            });
+
+            // Axis labels
+            ctx.textAlign = "center";
+            ctx.textBaseline = "bottom";
+            ctx.fillText("θ [deg]", leftMargin + plotW / 2, H - 4);
+
+            ctx.save();
+            ctx.translate(4, canvas.height / 2 - 10);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            ctx.fillText("z [m]", 0, 0);
+            ctx.restore();
+
+            // ---------- Color bar (pressure level) ----------
+            // Draw color bar frame
+            ctx.strokeStyle = "#e5e7eb";
+            ctx.strokeRect(colorBarX, colorBarY, colorBarWidth, plotH);
+
+            const cbImg = ctx.createImageData(colorBarWidth, plotH);
+            for (let py = 0; py < plotH; py++) {
+                // top = pMax, bottom = pMin
+                const t = 1 - py / (plotH - 1);
+                const [r, g, b] = colormap(t);
+                for (let px = 0; px < colorBarWidth; px++) {
+                    const idx = 4 * (py * colorBarWidth + px);
+                    cbImg.data[idx] = r;
+                    cbImg.data[idx + 1] = g;
+                    cbImg.data[idx + 2] = b;
+                    cbImg.data[idx + 3] = 255;
+                }
+            }
+            ctx.putImageData(cbImg, colorBarX, colorBarY);
+
+            // Pressure labels at top, middle, bottom
+            ctx.fillStyle = "#f9fafb";
+            ctx.font = "11px system-ui";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+
+            const midP = 0.5 * (pMin + pMax);
+
+            ctx.fillText(pMax.toExponential(2) + " Pa", colorBarX + colorBarWidth + 4, colorBarY + 5);
+            ctx.fillText(midP.toExponential(2) + " Pa", colorBarX + colorBarWidth + 4, colorBarY + plotH / 2);
+            ctx.fillText(pMin.toExponential(2) + " Pa", colorBarX + colorBarWidth + 4, colorBarY + plotH - 5);
+
+            // Color bar title
+            ctx.textAlign = "center";
+            ctx.textBaseline = "bottom";
+            ctx.fillText("p [Pa]", colorBarX + colorBarWidth / 2, colorBarY - 2);
         }
 
 
