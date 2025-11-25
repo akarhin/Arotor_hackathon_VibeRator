@@ -5,6 +5,7 @@
     <meta charset="UTF-8" />
     <title>Fluid / Air Bearing Analysis – K, C, ε, p(θ,z)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
     <style>
         :root {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -458,6 +459,14 @@
             </div>
             <h3>4.4 Campbell diagram</h3>
             <canvas id="campbellCanvas" width="1000" height="500"></canvas>
+            <h3>4.5 Mode shapes</h3>
+            <canvas id="mode1Canvas" width="1000" height="500"></canvas>
+
+            <canvas id="mode2Canvas" width="1000" height="500"></canvas>
+
+            <canvas id="mode3Canvas" width="1000" height="500"></canvas>
+
+            <div id="rotorPlot" style="width:100%;height:400px;"></div>
         </section>
 
 
@@ -837,12 +846,24 @@
                             "Critical speeds: " + crit.map(v => v.toFixed(1)).join(", ") + " rpm";
                     }
 
-
+                    if (data.rotor_figure) {
+                        const fig = JSON.parse(data.rotor_figure);
+                        Plotly.newPlot("rotorPlot", fig.data, fig.layout);
+                    }
 
                     // ---- Campbell plot ----
                     if (data.rpm && data.freqs) {
                         const canvas = document.getElementById("campbellCanvas");
                         plotCampbell(canvas, data.rpm, data.freqs);
+                    }
+
+                    if (data.mode_shapes) {
+                        const canvas1 = document.getElementById("mode1Canvas");
+                        const canvas2 = document.getElementById("mode2Canvas");
+                        const canvas3 = document.getElementById("mode3Canvas");
+                        plotMode(canvas1, data.mode_shapes, 0); //canvas, data, mode index
+                        plotMode(canvas2, data.mode_shapes, 2);
+                        plotMode(canvas3, data.mode_shapes, 4);
                     }
 
                 } catch (err) {
@@ -899,61 +920,223 @@
             });
 
             function plotCampbell(canvas, rpms, freqs) {
+                if (!canvas || !rpms || !freqs || rpms.length === 0 || freqs.length === 0) return;
+
                 const ctx = canvas.getContext("2d");
-                const W = canvas.width;
-                const H = canvas.height;
+
+                // ---- HiDPI / high-resolution setup ----
+                const ratio = window.devicePixelRatio || 1;
+                const rect = canvas.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) return;
+
+                // Set internal resolution and scale drawing to CSS pixels
+                canvas.width = rect.width * ratio;
+                canvas.height = rect.height * ratio;
+                ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+                const W = rect.width;
+                const H = rect.height;
 
                 ctx.clearRect(0, 0, W, H);
-                ctx.fillStyle = "#111827";
+
+                // Background
+                ctx.fillStyle = "#0f172a"; // dark, neutral
                 ctx.fillRect(0, 0, W, H);
 
+                // Plot margins
                 const left = 70, right = 30, top = 30, bottom = 60;
                 const pw = W - left - right;
                 const ph = H - top - bottom;
+                if (pw <= 0 || ph <= 0) return;
 
+                // ---- Data limits ----
                 const maxRpm = Math.max(...rpms);
+                const minRpm = 0; // assume from 0
+
+                // Flatten mode frequencies and include 1× line in vertical range
                 const flat = freqs.flat().filter(v => isFinite(v));
-                const maxFreq = Math.max(...flat, 1);
+                const fExc = rpms.map(r => r / 60.0);
+                const maxFreqData = flat.length ? Math.max(...flat) : 0;
+                const maxFreqExc = fExc.length ? Math.max(...fExc) : 0;
+                const maxFreq = Math.max(maxFreqData, maxFreqExc, 1e-3); // avoid zero
 
-                const x = r => left + (r / maxRpm) * pw;
-                const y = f => top + ph - (f / maxFreq) * ph;
+                // Axis mapping
+                const X = r => left + ((r - minRpm) / (maxRpm - minRpm)) * pw;
+                const Y = f => top + ph - (f / maxFreq) * ph;
 
-                // AXES
+                // ---- Axes, ticks, and grid ----
                 ctx.strokeStyle = "#e5e7eb";
+                ctx.lineWidth = 1;
+
+                // Axes
                 ctx.beginPath();
                 ctx.moveTo(left, top);
                 ctx.lineTo(left, top + ph);
                 ctx.lineTo(left + pw, top + ph);
                 ctx.stroke();
 
-                // 1x LINE
-                ctx.setLineDash([5, 4]);
+                // Tick helpers
+                const nTicksX = 6;
+                const nTicksY = 5;
+
+                // X ticks (rpm)
+                ctx.fillStyle = "#e5e7eb";
+                ctx.font = "11px system-ui";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+
+                const xStep = maxRpm / nTicksX;
+                ctx.setLineDash([3, 4]); // vertical grid
+                ctx.strokeStyle = "rgba(148, 163, 184, 0.5)";
+
+                for (let i = 0; i <= nTicksX; i++) {
+                    const r = i * xStep;
+                    const xx = X(r);
+
+                    // Grid line
+                    ctx.beginPath();
+                    ctx.moveTo(xx, top);
+                    ctx.lineTo(xx, top + ph);
+                    ctx.stroke();
+
+                    // Tick + label
+                    ctx.setLineDash([]); // short tick
+                    ctx.beginPath();
+                    ctx.moveTo(xx, top + ph);
+                    ctx.lineTo(xx, top + ph + 5);
+                    ctx.stroke();
+
+                    ctx.fillText(r.toFixed(0), xx, top + ph + 8);
+                    ctx.setLineDash([3, 4]); // restore grid dash
+                }
+
+                // Y ticks (frequency)
+                ctx.textAlign = "right";
+                ctx.textBaseline = "middle";
+                const yStep = maxFreq / nTicksY;
+
+                ctx.setLineDash([3, 4]); // horizontal grid
+                ctx.strokeStyle = "rgba(148, 163, 184, 0.5)";
+
+                for (let i = 0; i <= nTicksY; i++) {
+                    const f = i * yStep;
+                    const yy = Y(f);
+
+                    // Grid line
+                    ctx.beginPath();
+                    ctx.moveTo(left, yy);
+                    ctx.lineTo(left + pw, yy);
+                    ctx.stroke();
+
+                    // Tick + label
+                    ctx.setLineDash([]); // short tick
+                    ctx.beginPath();
+                    ctx.moveTo(left - 5, yy);
+                    ctx.lineTo(left, yy);
+                    ctx.stroke();
+
+                    ctx.fillText(f.toFixed(1), left - 8, yy);
+                    ctx.setLineDash([3, 4]); // restore grid dash
+                }
+
+                ctx.setLineDash([]);
+
+                // ---- 1× excitation line ----
                 ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 4]);
+
                 ctx.beginPath();
                 rpms.forEach((r, i) => {
-                    const f = r / 60;
-                    if (i === 0) ctx.moveTo(x(r), y(f));
-                    else ctx.lineTo(x(r), y(f));
+                    const f = r / 60.0;
+                    const xx = X(r);
+                    const yy = Y(f);
+                    if (i === 0) ctx.moveTo(xx, yy);
+                    else ctx.lineTo(xx, yy);
                 });
                 ctx.stroke();
                 ctx.setLineDash([]);
 
-                // MODES
-                const colours = ["#34d399", "#60a5fa", "#f472b6", "#facc15", "#fb7185"];
+                // ---- Mode branches ----
+                const colours = ["#34d399", "#60a5fa", "#f472b6", "#facc15", "#fb7185", "#a78bfa"];
                 const nModes = freqs[0].length;
+
+                ctx.lineWidth = 1.8;
 
                 for (let m = 0; m < nModes; m++) {
                     ctx.strokeStyle = colours[m % colours.length];
                     ctx.beginPath();
+                    let started = false;
+
                     rpms.forEach((r, i) => {
-                        const f = freqs[i][m];
+                        const row = freqs[i];
+                        if (!row || m >= row.length) return;
+                        const f = row[m];
                         if (!isFinite(f)) return;
-                        if (i === 0) ctx.moveTo(x(r), y(f));
-                        else ctx.lineTo(x(r), y(f));
+                        const xx = X(r);
+                        const yy = Y(f);
+                        if (!started) {
+                            ctx.moveTo(xx, yy);
+                            started = true;
+                        } else {
+                            ctx.lineTo(xx, yy);
+                        }
                     });
+
                     ctx.stroke();
                 }
+
+                // ---- Axis labels ----
+                ctx.fillStyle = "#e5e7eb";
+                ctx.font = "12px system-ui";
+
+                // X label
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.fillText("Rotor speed Ω [rpm]", left + pw / 2, H - bottom + 28);
+
+                // Y label
+                ctx.save();
+                ctx.translate(18, top + ph / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                ctx.fillText("Frequency [Hz]", 0, 0);
+                ctx.restore();
+
+                // ---- Legend ----
+                const legendX = left + pw - 140;
+                const legendY = top + 10;
+                const lineLen = 18;
+                const lineGap = 16;
+
+                ctx.font = "11px system-ui";
+                ctx.textAlign = "left";
+                ctx.textBaseline = "middle";
+
+                // 1×
+                let ly = legendY;
+                ctx.strokeStyle = "#ffffff";
+                ctx.setLineDash([6, 4]);
+                ctx.beginPath();
+                ctx.moveTo(legendX, ly);
+                ctx.lineTo(legendX + lineLen, ly);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillText("1× rotational speed", legendX + lineLen + 6, ly);
+
+                // Modes
+                for (let m = 0; m < nModes; m++) {
+                    ly += lineGap;
+                    ctx.strokeStyle = colours[m % colours.length];
+                    ctx.beginPath();
+                    ctx.moveTo(legendX, ly);
+                    ctx.lineTo(legendX + lineLen, ly);
+                    ctx.stroke();
+                    ctx.fillText(`Mode ${m + 1}`, legendX + lineLen + 6, ly);
+                }
             }
+
             // ----------------------------------------
             // 3) Friswell presets (bearing section)
             // ----------------------------------------
@@ -987,6 +1170,165 @@
                 [0, 1],
                 [[0, 0], [0, 0]]
             );
+
+            function plotMode(canvas, modeShapes, modeIndex) {
+                if (!canvas || !modeShapes || modeShapes.length === 0) return;
+                if (modeIndex < 0 || modeIndex >= modeShapes.length) return;
+
+                const shape = modeShapes[modeIndex];
+                const x = shape.x;   // axial coords [m]
+                const wy = shape.wy; // y-plane mode shape (possibly already normalized)
+
+                if (!x || !wy || x.length === 0 || wy.length === 0) return;
+
+                const ctx = canvas.getContext("2d");
+
+                // ---- HiDPI / high-resolution setup ----
+                const ratio = window.devicePixelRatio || 1;
+                const rect = canvas.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) return;
+
+                // Internal resolution in device pixels; drawing in CSS pixels
+                canvas.width = rect.width * ratio;
+                canvas.height = rect.height * ratio;
+                ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+                const W = rect.width;
+                const H = rect.height;
+
+                ctx.clearRect(0, 0, W, H);
+
+                // Background
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, 0, W, H);
+
+                // Margins
+                const left = 60, right = 20, top = 25, bottom = 45;
+                const pw = W - left - right;
+                const ph = H - top - bottom;
+                if (pw <= 0 || ph <= 0) return;
+
+                // Data extents in x
+                let xMin = Math.min(...x);
+                let xMax = Math.max(...x);
+                if (!isFinite(xMin) || !isFinite(xMax) || xMax === xMin) return;
+
+                // Normalize wy to [-1, 1] for pure shape plotting
+                const maxAbs = Math.max(...wy.map(v => Math.abs(v)), 1e-12);
+                const wyNorm = wy.map(v => v / maxAbs);
+
+                // Keep waveform away from canvas edges: ±0.45 of plot height
+                const centerY = top + ph / 2;
+                const halfSpan = ph * 0.45; // leaves 5% margin top/bottom
+
+                // Mapping functions
+                const X = s => left + ((s - xMin) / (xMax - xMin)) * pw;
+                const Y = vn => centerY - vn * halfSpan; // vn in [-1,1]
+
+                // ---- Grid and axes ----
+                ctx.strokeStyle = "#e5e7eb";
+                ctx.lineWidth = 1;
+
+                // Outer frame
+                ctx.strokeRect(left, top, pw, ph);
+
+                // Light vertical grid at nodal positions
+                ctx.setLineDash([3, 4]);
+                ctx.strokeStyle = "#e5e7eb";
+                ctx.beginPath();
+                for (let i = 0; i < x.length; i++) {
+                    const xx = X(x[i]);
+                    ctx.moveTo(xx, top);
+                    ctx.lineTo(xx, top + ph);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Undeformed shaft axis (y = 0)
+                ctx.strokeStyle = "#9ca3af";
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(left, centerY);
+                ctx.lineTo(left + pw, centerY);
+                ctx.stroke();
+
+                // ---- Mode shape curve (y-plane) ----
+                ctx.strokeStyle = "#111827";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                for (let i = 0; i < x.length; i++) {
+                    const xx = X(x[i]);
+                    const yy = Y(wyNorm[i]);
+                    if (i === 0) ctx.moveTo(xx, yy);
+                    else ctx.lineTo(xx, yy);
+                }
+                ctx.stroke();
+
+                // Node markers
+                ctx.fillStyle = "#111827";
+                for (let i = 0; i < x.length; i++) {
+                    const xx = X(x[i]);
+                    const yy = Y(wyNorm[i]);
+                    ctx.beginPath();
+                    ctx.arc(xx, yy, 2.2, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+
+                // ---- Axes ticks & labels (x only, y is shape-only) ----
+                ctx.fillStyle = "#111827";
+                ctx.font = "11px system-ui";
+
+                // X-axis ticks at min, mid, max
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+
+                const xTicks = [xMin, 0.5 * (xMin + xMax), xMax];
+                xTicks.forEach(val => {
+                    const xx = X(val);
+                    const yy = top + ph;
+                    // Tick
+                    ctx.beginPath();
+                    ctx.moveTo(xx, yy);
+                    ctx.lineTo(xx, yy + 5);
+                    ctx.strokeStyle = "#4b5563";
+                    ctx.stroke();
+                    // Label
+                    ctx.fillText(val.toFixed(2), xx, yy + 7);
+                });
+
+                // X-axis label
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.fillText(
+                    "Axial position along rotor [m]",
+                    left + pw / 2,
+                    H - bottom + 22
+                );
+
+                // Y label (no numeric ticks)
+                ctx.save();
+                ctx.translate(18, top + ph / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                ctx.fillText("shape (normalized)", 0, 0);
+                ctx.restore();
+
+                // ---- Title: Mode and rpm (if available) ----
+                const modeLabel = shape.mode != null ? shape.mode : (modeIndex + 1);
+                const rpmLabel = shape.rpm != null && isFinite(shape.rpm)
+                    ? `${shape.rpm.toFixed(0)} rpm`
+                    : "";
+                const title = rpmLabel
+                    ? `Mode ${modeLabel} at ${rpmLabel}`
+                    : `Mode ${modeLabel}`;
+
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.font = "12px system-ui";
+                ctx.fillText(title, left + pw / 2, 6);
+            }
+
         </script>
 
 

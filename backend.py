@@ -1,10 +1,13 @@
 import numpy as np
 from typing import Tuple
-
+import io
+import base64
 from flask import Flask, request, jsonify
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
 from flask_cors import CORS
+import matplotlib.pyplot as plt
+import ross as rs
 
 app = Flask(__name__)
 
@@ -485,6 +488,77 @@ def iterative_critical_speeds(M, C, K, G_base,
     return Omega_conv, Omega_rpm, Omega_hist
 
 
+def modes_at_speed(M, C, K, G_base, Omega, imag_tol=1e-6):
+    """
+    Eigenvalues s and eigenvectors V at spin speed Ω [rad/s] for
+
+        M q¨ + (C + Ω G_base) q˙ + K q = 0  →  x˙ = A x
+    """
+    M = np.asarray(M,  dtype=np.complex128)
+    C0 = np.asarray(C,  dtype=np.complex128)
+    K = np.asarray(K,  dtype=np.complex128)
+    G = np.asarray(G_base, dtype=np.complex128)
+
+    nd = M.shape[0]
+    Z = np.zeros((nd, nd), dtype=np.complex128)
+    I = np.eye(nd, dtype=np.complex128)
+    Minv = np.linalg.inv(M)
+
+    C_eff = C0 + Omega * G
+
+    A = np.block([
+        [Z,                   I],
+        [-Minv @ K, -Minv @ C_eff],
+    ])
+
+    s, V = np.linalg.eig(A)
+    mask = np.abs(np.imag(s)) > imag_tol
+    return s[mask], V[:, mask]
+
+
+def mode_shape_data(M, C, K, G_base, Nn, L_total, mode_index, rpm):
+    Omega = 2.0 * np.pi * rpm / 60.0
+    s, V = modes_at_speed(M, C, K, G_base, Omega)
+
+    idx = np.where(np.imag(s) > 0)[0]
+    s = s[idx]
+    V = V[:, idx]
+    order = np.argsort(np.imag(s))
+    s = s[order]
+    V = V[:, order]
+
+    mode_idx = min(mode_index, len(s) - 1)
+    v = V[:, mode_idx]
+    q = v[:M.shape[0]]
+
+    dof_x = np.arange(0, 2 * Nn, 2)
+    dof_y = 2 * Nn + np.arange(0, 2 * Nn, 2)
+
+    wx = np.real(q[dof_x])
+    wy = np.real(q[dof_y])
+
+    x_nodes = np.linspace(0.0, L_total, Nn)
+
+    amp = max(np.max(np.abs(wx)), np.max(np.abs(wy)), 1e-12)
+    wx_n = (wx / amp).tolist()
+    wy_n = (wy / amp).tolist()
+
+    return {
+        "x": x_nodes.tolist(),
+        "wx": wx_n,
+        "wy": wy_n,
+        "rpm": float(rpm),
+        "mode": int(mode_index) + 1
+    }
+
+
+def fig_to_base64(fig):
+    buf = io.BytesIO()
+    buf.write(fig.to_image(format="png", scale=2))
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode("utf-8")
+
+
 # =========================================================
 # API route
 # =========================================================
@@ -646,7 +720,6 @@ def compute_lambda(mu, omega, pa, R, c):
     return (6 * mu * omega * (R / c)**2) / pa
 
 
-@app.route("/api/critical-speeds", methods=["POST"])
 # =========================================================
 # Correct critical-speed endpoint
 # =========================================================
@@ -669,7 +742,6 @@ def critical():
     Cb = np.array(d["Cbearing"], dtype=float)
     rpm_max = float(d["omegaMaxRpm"])
 
-    # Map bearing exactly like your working script
     bearing = {
         "kxx": Kb[0][0],
         "kyy": Kb[1][1],
@@ -677,7 +749,7 @@ def critical():
         "cyy": Cb[1][1],
     }
 
-    # ---- Build FE model (match working notebook exactly) ----
+    # ---- Build model (matches your working reference) ----
     A = np.pi * dshaft**2 / 4
     I = np.pi * dshaft**4 / 64
     rhoA = rho * A
@@ -692,7 +764,7 @@ def critical():
     G_model = add_disk_gyroscopic(G_shaft, Nn, node_disc, Ip)
 
     node_left = 0
-    node_right = int(round(1.0 / (L / ne)))
+    node_right = ne
 
     C_model, K_model = add_bearing_matrices(
         C_struct, K_shaft,
@@ -700,7 +772,7 @@ def critical():
         node_left, node_right, Nn
     )
 
-    # ---- Campbell data (same as before) ----
+    # ---- Campbell data ----
     n_points = 120
     n_modes = 6
 
@@ -710,14 +782,15 @@ def critical():
     for i, r in enumerate(rpm):
         Omega = 2.0 * np.pi * r / 60.0
         f = eigenfrequencies_speed(M_model, C_model, K_model, G_model, Omega)
-        m = min(n_modes, len(f))
-        freqs[i, :m] = f[:m]
+        mcount = min(n_modes, len(f))
+        freqs[i, :mcount] = f[:mcount]
 
-    # ---- CRITICAL SPEEDS (MATCHES YOUR WORKING SCRIPT) ----
+    # ---- Critical speeds (correct method) ----
     rpm_ref = 1000.0
     Omega_ref = 2.0 * np.pi * rpm_ref / 60.0
     f_ref = eigenfrequencies_speed(
-        M_model, C_model, K_model, G_model, Omega_ref)[:5]
+        M_model, C_model, K_model, G_model, Omega_ref
+    )[:5]
 
     Omega0 = 2.0 * np.pi * f_ref
 
@@ -729,10 +802,99 @@ def critical():
         rel_tol=1e-6
     )
 
+    # ---- MODE SHAPES FOR EACH CRITICAL SPEED ----
+    mode_shapes = []
+
+    for i, rpm_c in enumerate(Omega_crit_rpm):
+        Omega_c = 2.0 * np.pi * rpm_c / 60.0
+
+        s, V = modes_at_speed(M_model, C_model, K_model, G_model, Omega_c)
+
+        idx = np.where(np.imag(s) > 0)[0]
+        s_pos = s[idx]
+        V_pos = V[:, idx]
+        order = np.argsort(np.imag(s_pos))
+        s_sort = s_pos[order]
+        V_sort = V_pos[:, order]
+
+        mode_idx = min(i, len(s_sort) - 1)
+        v = V_sort[:, mode_idx]
+        q = v[:M_model.shape[0]]
+
+        dof_x = np.arange(0, 2 * Nn, 2)
+        dof_y = 2 * Nn + np.arange(0, 2 * Nn, 2)
+
+        wx = np.real(q[dof_x])
+        wy = np.real(q[dof_y])
+
+        x_nodes = np.linspace(0.0, L, Nn)
+
+        amp = max(np.max(np.abs(wx)), np.max(np.abs(wy)), 1e-12)
+        wx_n = (wx / amp).tolist()
+        wy_n = (wy / amp).tolist()
+
+        mode_shapes.append({
+            "mode": int(i + 1),
+            "rpm": float(rpm_c),
+            "x": x_nodes.tolist(),
+            "wx": wx_n,
+            "wy": wy_n
+        })
+
+    # ---- ROSS rotor image (only this extra) ----
+    steel = rs.Material(name="Steel", rho=rho, E=E, G_s=E / 2.6)
+
+    Le = L / ne
+    shaft_elements = [
+        rs.ShaftElement(
+            L=Le,
+            idl=0.0,
+            odl=dshaft,
+            material=steel,
+            shear_effects=True,
+            rotary_inertia=True,
+            gyroscopic=True,
+        )
+        for _ in range(ne)
+    ]
+
+    disk = rs.DiskElement(
+        n=node_disc,
+        m=m,
+        Ip=Ip,
+        Id=Id
+    )
+
+    bearingL = rs.BearingElement(
+        n=node_left,
+        kxx=bearing["kxx"],
+        kyy=bearing["kyy"],
+        cxx=bearing["cxx"],
+        cyy=bearing["cyy"],
+    )
+    bearingR = rs.BearingElement(
+        n=node_right,
+        kxx=bearing["kxx"],
+        kyy=bearing["kyy"],
+        cxx=bearing["cxx"],
+        cyy=bearing["cyy"],
+    )
+
+    rotor = rs.Rotor(
+        shaft_elements=shaft_elements,
+        disk_elements=[disk],
+        bearing_elements=[bearingL, bearingR],
+    )
+
+    fig_rotor = rotor.plot_rotor()
+    # rotor_img = fig_to_base64(fig_rotor)
+
     return jsonify({
         "rpm": rpm.tolist(),
         "freqs": freqs.tolist(),
-        "critical_speeds_rpm": Omega_crit_rpm.tolist()
+        "critical_speeds_rpm": Omega_crit_rpm.tolist(),
+        "mode_shapes": mode_shapes,
+        "rotor_figure": fig_rotor.to_json()
     })
 
 
