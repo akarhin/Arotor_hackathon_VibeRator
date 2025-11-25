@@ -552,6 +552,100 @@ def api_analyze():
         return jsonify({"error": str(e)}), 500
 
 
+def FrFt_bar(Lambda_star, L_over_D=1.0):
+    """
+    Dimensionless force components (small-ε static solution) at Λ*.
+    F̄r + i F̄t = (i Λ*)/(1 + i Λ*) * [1 - tanh(η L/D)/(η L/D)] * (π/2),
+    with η = sqrt(1 + i Λ*).
+    """
+    i = 1j
+    eta = np.sqrt(1.0 + i * Lambda_star)
+    H = 1.0 - np.tanh(eta * L_over_D) / (eta * L_over_D)
+    G = (i * Lambda_star) / (1.0 + i * Lambda_star) * H * (np.pi / 2.0)
+    return np.real(G), np.imag(G)  # F̄r, F̄t
+
+
+def damping_Cxx_Cxy(Lambda, sigma_vals, L_over_D=1.0):
+    """
+    Dynamic damping coefficients (dimensionless) for given Λ over σ:
+    CXX = -[F̄t(Λ-σ) - F̄t(Λ+σ)]/(2σ)
+    CXY = +[F̄r(Λ-σ) - F̄r(Λ+σ)]/(2σ)
+    """
+    Cxx = np.zeros_like(sigma_vals, dtype=float)
+    Cxy = np.zeros_like(sigma_vals, dtype=float)
+    for k, s in enumerate(sigma_vals):
+        s_eff = s if s != 0 else 1e-12
+        Fr_m, Ft_m = FrFt_bar(Lambda - s_eff, L_over_D)
+        Fr_p, Ft_p = FrFt_bar(Lambda + s_eff, L_over_D)
+        Cxx[k] = -(Ft_m - Ft_p) / (2.0 * s_eff)
+        Cxy[k] = +(Fr_m - Fr_p) / (2.0 * s_eff)
+    return Cxx, Cxy
+
+
+def FrFt_bar(Lambda_star, L_over_D=1.0):
+    """
+    Dimensionless force components for the small-ε static solution at Λ*.
+    F̄r + i F̄t = (i Λ*)/(1 + i Λ*) * [1 - tanh(η L/D)/(η L/D)] * (π/2),
+    where η = sqrt(1 + i Λ*).
+    Returns (F̄r, F̄t).
+    """
+    i = 1j
+    eta = np.sqrt(1.0 + i * Lambda_star)
+    H = 1.0 - np.tanh(eta * L_over_D) / (eta * L_over_D)
+    G = (i * Lambda_star) / (1.0 + i * Lambda_star) * H * (np.pi / 2.0)
+    return np.real(G), np.imag(G)  # F̄r, F̄t
+
+# ---- Dynamic stiffness coefficients from section 9.3.2 (dimensionless) ----
+
+
+def stiffness_Kxx_Kxy(Lambda, sigma_vals, L_over_D=1.0):
+    """
+    Compute dynamic stiffness coefficients Kxx and Kxy.
+    """
+    Kxx = np.zeros_like(sigma_vals, dtype=float)
+    Kxy = np.zeros_like(sigma_vals, dtype=float)
+    for k, s in enumerate(sigma_vals):
+        Fr_m, Ft_m = FrFt_bar(Lambda - s, L_over_D)
+        Fr_p, Ft_p = FrFt_bar(Lambda + s, L_over_D)
+        Kxx[k] = 0.5 * (Fr_m + Fr_p)
+        Kxy[k] = -0.5 * (Ft_m + Ft_p)
+    return Kxx, Kxy
+
+
+def compute_squeeze_number(mu, nu, pa, R, c):
+    """
+    Compute the squeeze number (σ) for hydrodynamic lubrication.
+
+    Args:
+        mu (float): Dynamic viscosity of the lubricant (Pa·s).
+        nu (float): Normal velocity (m/s).
+        pa (float): Ambient pressure (Pa).
+        R (float): Radius of the journal (m).
+        c (float): Radial clearance (m).
+
+    Returns:
+        float: The computed value of σ.
+    """
+    return (12 * mu * nu * (R / c)**2) / pa
+
+
+def compute_lambda(mu, omega, pa, R, c):
+    """
+    Compute the dimensionless parameter Lambda (Λ) for hydrodynamic lubrication.
+
+    Args:
+        mu (float): Dynamic viscosity of the lubricant (Pa·s).
+        omega (float): Angular velocity of the journal (rad/s).
+        pa (float): Ambient pressure (Pa).
+        R (float): Radius of the journal (m).
+        c (float): Radial clearance (m).
+
+    Returns:
+        float: The computed value of Λ.
+    """
+    return (6 * mu * omega * (R / c)**2) / pa
+
+
 @app.route("/api/critical-speeds", methods=["POST"])
 # =========================================================
 # Correct critical-speed endpoint
