@@ -764,7 +764,7 @@ def critical():
     G_model = add_disk_gyroscopic(G_shaft, Nn, node_disc, Ip)
 
     node_left = 0
-    node_right = ne
+    node_right = int(round(1.0 / (L / ne)))
 
     C_model, K_model = add_bearing_matrices(
         C_struct, K_shaft,
