@@ -5,6 +5,7 @@
     <meta charset="UTF-8" />
     <title>Fluid / Air Bearing Analysis – K, C, ε, p(θ,z)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
     <style>
         :root {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -363,383 +364,973 @@
                 </div>
             </div>
         </section>
-    </main>
 
-    <footer>
-        Task 5 – Fluid / Air Bearing Designer
-    </footer>
 
-    <script>
-        function fmt(x) {
-            if (!isFinite(x)) return "–";
-            if (Math.abs(x) < 1e-3 || Math.abs(x) > 1e4) return x.toExponential(2);
-            return x.toFixed(3);
-        }
+        <section class="card">
+            <h2>4. Critical speeds</h2>
 
-        // function updateRegimePill(eps, fluidType) {
-        //     const regimePill = document.getElementById("regimePill");
-        //     let regime = "light";
-        //     if (eps > 0.3) regime = "medium";
-        //     if (eps > 0.7) regime = "high";
-        //     if (fluidType === "air") {
-        //         regime += " (air)";
-        //     } else {
-        //         regime += " (oil)";
-        //     }
-        //     regimePill.textContent = "Regime: " + regime;
-        // }
+            <!-- 4.1 Bearing matrices (user-defined) -->
+            <h3>4.1 Bearing stiffness and damping matrices</h3>
+            <div class="form-grid">
+                <div>
+                    <label for="bearingSize">Bearing matrix size</label>
+                    <select id="bearingSize">
+                        <option value="2" selected>2 × 2 (x, y)</option>
+                        <!-- You can add 4×4, 8×8, etc. later if needed -->
+                    </select>
+                </div>
+                <div>
+                    <label for="Kbearing">Bearing stiffness matrix K<sub>b</sub> [N/m]</label>
+                    <textarea id="Kbearing" rows="3" spellcheck="false">1e6, 0
+        0, 1e6</textarea>
+                    <small>Enter rows separated by newlines, columns by commas.
+                        Example (2×2): <code>1e6, 0<br>0, 1e6</code>
+                    </small>
+                </div>
+                <div>
+                    <label for="Cbearing">Bearing damping matrix C<sub>b</sub> [N·s/m]</label>
+                    <textarea id="Cbearing" rows="3" spellcheck="false">0, 0
+        0, 0</textarea>
+                    <small>Same format as K<sub>b</sub>. Example: <code>0, 0<br>0, 0</code></small>
+                </div>
+            </div>
 
-        function drawPressureFieldFromData(canvas, theta, z, p) {
-            const ctx = canvas.getContext("2d");
-            const W = canvas.width;
-            const H = canvas.height;
+            <!-- 4.2 Rotor finite-element model -->
+            <h3>4.2 Rotor finite-element model</h3>
+            <div class="form-grid">
+                <div>
+                    <label for="shaftLength">Shaft length L<sub>r</sub> [m]</label>
+                    <input id="shaftLength" type="number" step="0.001" value="1.5">
+                </div>
+                <div>
+                    <label for="shaftDiameter">Shaft diameter d [m]</label>
+                    <input id="shaftDiameter" type="number" step="0.0001" value="0.025">
+                </div>
+                <div>
+                    <label for="numElements">Number of shaft elements</label>
+                    <input id="numElements" type="number" step="1" min="1" value="6">
+                </div>
+                <div>
+                    <label for="numModes">Number of modes to track</label>
+                    <input id="numModes" type="number" step="1" min="1" value="6">
+                </div>
+                <div>
+                    <label for="density">Shaft density ρ [kg/m³]</label>
+                    <input id="density" type="number" step="1" value="7810">
+                </div>
+                <div>
+                    <label for="youngsModulus">Young’s modulus E [Pa]</label>
+                    <input id="youngsModulus" type="number" step="1e9" value="211000000000">
+                </div>
+            </div>
 
-            // ---------- Convert theta to degrees and shift ----------
-            const thetaDeg = theta.map(t => {
-                let d = t * 180 / Math.PI;
-                if (d > 180) d -= 360;
-                return d;
-            });
+            <!-- 4.3 Disk and speed range -->
+            <h3>4.3 Disk and speed range</h3>
+            <div class="form-grid">
+                <div>
+                    <label for="diskMass">Disk mass m<sub>d</sub> [kg]</label>
+                    <input id="diskMass" type="number" step="0.01" value="15.3">
+                </div>
+                <div>
+                    <label for="diskId">Disk diametral inertia I<sub>d</sub> [kg·m²]</label>
+                    <input id="diskId" type="number" step="0.001" value="0.062">
+                </div>
+                <div>
+                    <label for="diskIp">Disk polar inertia I<sub>p</sub> [kg·m²]</label>
+                    <input id="diskIp" type="number" step="0.001" value="0.120">
+                </div>
+                <div>
+                    <label for="omegaMax">Campbell max speed [rpm]</label>
+                    <input id="omegaMax" type="number" step="100" value="3500">
+                </div>
+                <div>
+                    <label for="speedRpm">Reference speed n<sub>ref</sub> [rpm]</label>
+                    <input id="speedRpm" type="number" step="1" value="1000">
+                </div>
+                <div>
+                    <label>System size</label>
+                    <div id="systemSizeLabel">Nodes: 7, DOFs: 28</div>
+                </div>
+                <div class="inline-row">
+                    <button id="criticalBtn">Run critical speed</button>
+                    <button id="friswellRotorBtn" class="secondary">Friswell example</button>
+                    <span class="section-caption" id="criticalStatusText">Status: idle</span>
+                </div>
+            </div>
+            <h3>4.4 Campbell diagram</h3>
+            <canvas id="campbellCanvas" width="1000" height="500"></canvas>
+            <h3>4.5 Mode shapes</h3>
+            <canvas id="mode1Canvas" width="1000" height="500"></canvas>
 
-            // ---------- Sort theta and pressure ----------
-            const indices = thetaDeg.map((_, i) => i).sort((i, j) => thetaDeg[i] - thetaDeg[j]);
-            const thetaSorted = indices.map(i => thetaDeg[i]);
-            const pSorted = indices.map(i => p[i]);
+            <canvas id="mode2Canvas" width="1000" height="500"></canvas>
 
-            const Ntheta = thetaSorted.length;
-            const Nz = z.length;
+            <canvas id="mode3Canvas" width="1000" height="500"></canvas>
 
-            // ---------- Min / Max pressure ----------
-            let pMin = Infinity;
-            let pMax = -Infinity;
-            for (let i = 0; i < Ntheta; i++) {
-                for (let j = 0; j < Nz; j++) {
-                    const val = pSorted[i][j];
-                    if (val < pMin) pMin = val;
-                    if (val > pMax) pMax = val;
-                }
+            <div id="rotorPlot" style="width:100%;height:400px;"></div>
+        </section>
+
+
+        <footer>
+            Bearing Designer
+        </footer>
+
+        <script>
+            const numElementsInput = document.getElementById("numElements");
+            const systemSizeLabel = document.getElementById("systemSizeLabel");
+            const runBtn = document.getElementById("runBtn");
+            const friswellBtn = document.getElementById("friswellBtn");
+            const criticalBtn = document.getElementById("criticalBtn");
+            const statusText = document.getElementById("statusText");
+            const criticalStatusText = document.getElementById("criticalStatusText");
+
+            function updateSystemSize() {
+                const ne = parseInt(numElementsInput.value, 10) || 1;
+                const nodes = ne + 1;
+                const dofs = 4 * nodes; // 2 DOFs per node per bending plane × 2 planes
+                systemSizeLabel.textContent = `Nodes: ${nodes}, DOFs: ${dofs}`;
             }
-            if (!isFinite(pMin) || !isFinite(pMax) || pMax === pMin) {
+
+            numElementsInput.addEventListener("input", updateSystemSize);
+            updateSystemSize();
+
+            // Parse a textarea like:
+            // "1e6, 0\n0, 1e6" → [[1e6, 0], [0, 1e6]]
+            function parseMatrixTextarea(text, expectedSize) {
+                const rows = text
+                    .trim()
+                    .split(/\n+/)
+                    .map(row => row.split(/[,; ]+/).filter(s => s.length > 0));
+
+                if (rows.length !== expectedSize) {
+                    throw new Error(`Expected ${expectedSize} rows, got ${rows.length}`);
+                }
+
+                const mat = rows.map((r, i) => {
+                    if (r.length !== expectedSize) {
+                        throw new Error(`Row ${i} expected ${expectedSize} columns, got ${r.length}`);
+                    }
+                    return r.map(Number);
+                });
+
+                return mat;
+            }
+
+            function fmt(x) {
+                if (!isFinite(x)) return "–";
+                if (Math.abs(x) < 1e-3 || Math.abs(x) > 1e4) return x.toExponential(2);
+                return x.toFixed(3);
+            }
+
+            function drawPressureFieldFromData(canvas, theta, z, p) {
+                const ctx = canvas.getContext("2d");
+                const W = canvas.width;
+                const H = canvas.height;
+
+                const thetaDeg = theta.map(t => {
+                    let d = t * 180 / Math.PI;
+                    if (d > 180) d -= 360;
+                    return d;
+                });
+
+                const indices = thetaDeg.map((_, i) => i).sort((i, j) => thetaDeg[i] - thetaDeg[j]);
+                const thetaSorted = indices.map(i => thetaDeg[i]);
+                const pSorted = indices.map(i => p[i]);
+
+                const Ntheta = thetaSorted.length;
+                const Nz = z.length;
+
+                let pMin = Infinity;
+                let pMax = -Infinity;
+                for (let i = 0; i < Ntheta; i++) {
+                    for (let j = 0; j < Nz; j++) {
+                        const val = pSorted[i][j];
+                        if (val < pMin) pMin = val;
+                        if (val > pMax) pMax = val;
+                    }
+                }
+                if (!isFinite(pMin) || !isFinite(pMax) || pMax === pMin) {
+                    ctx.clearRect(0, 0, W, H);
+                    return;
+                }
+
+                const leftMargin = 70;
+                const rightMargin = 120;
+                const topMargin = 40;
+                const bottomMargin = 40;
+
+                const plotW = W - leftMargin - rightMargin;
+                const plotH = H - topMargin - bottomMargin;
+
+                const colorBarWidth = 18;
+                const colorBarX = leftMargin + plotW + 15;
+                const colorBarY = topMargin;
+
                 ctx.clearRect(0, 0, W, H);
-                return;
-            }
+                ctx.fillStyle = "#111827";
+                ctx.fillRect(0, 0, W, H);
 
-            // ---------- Layout: plot area + colorbar ----------
-            const leftMargin = 70;
-            const rightMargin = 120;    // Wider to fit color bar + labels
-            const topMargin = 40;
-            const bottomMargin = 40;
+                const img = ctx.createImageData(plotW, plotH);
 
-            const plotW = W - leftMargin - rightMargin;
-            const plotH = H - topMargin - bottomMargin;
+                function colormap(t) {
+                    t = Math.max(0, Math.min(1, t));
+                    const x = 2 * t - 1;
 
-            const colorBarWidth = 18;
-            const colorBarX = leftMargin + plotW + 15;
-            const colorBarY = topMargin;
-
-            // ---------- Background ----------
-            ctx.clearRect(0, 0, W, H);
-            ctx.fillStyle = "#111827";     // dark background so zeros stand out
-            ctx.fillRect(0, 0, W, H);
-
-            // ---------- Heatmap with bilinear interpolation ----------
-            const img = ctx.createImageData(plotW, plotH);
-
-            // color mapping: diverging, with p ≈ 0 in a bright mid color
-            function colormap(t) {
-                // clamp 0..1
-                t = Math.max(0, Math.min(1, t));
-                // map t to [-1,1] around 0
-                const x = 2 * t - 1;
-
-                // simple diverging: blue (neg) → light/white (0) → red (pos)
-                let r, g, b;
-                if (x < 0) {
-                    // negative: mix blue with white
-                    const a = -x;            // 0..1
-                    r = 255 * (1 - a);       // more white as x→0
-                    g = 255 * (1 - a);
-                    b = 255;
-                } else {
-                    // positive: mix red with white
-                    const a = x;             // 0..1
-                    r = 255;
-                    g = 255 * (1 - a);
-                    b = 255 * (1 - a);
+                    let r, g, b;
+                    if (x < 0) {
+                        const a = -x;
+                        r = 255 * (1 - a);
+                        g = 255 * (1 - a);
+                        b = 255;
+                    } else {
+                        const a = x;
+                        r = 255;
+                        g = 255 * (1 - a);
+                        b = 255 * (1 - a);
+                    }
+                    return [Math.round(r), Math.round(g), Math.round(b)];
                 }
-                return [Math.round(r), Math.round(g), Math.round(b)];
-            }
 
-            for (let py = 0; py < plotH; py++) {
-                // map y to z-index (0..Nz-1)
-                const jFloat = (py / (plotH - 1)) * (Nz - 1);
-                const j0 = Math.floor(jFloat);
-                const j1 = Math.min(j0 + 1, Nz - 1);
-                const ty = jFloat - j0;
+                for (let py = 0; py < plotH; py++) {
+                    const jFloat = (py / (plotH - 1)) * (Nz - 1);
+                    const j0 = Math.floor(jFloat);
+                    const j1 = Math.min(j0 + 1, Nz - 1);
+                    const ty = jFloat - j0;
 
-                for (let px = 0; px < plotW; px++) {
-                    // map x to theta-index (0..Ntheta-1)
-                    const iFloat = (px / (plotW - 1)) * (Ntheta - 1);
-                    const i0 = Math.floor(iFloat);
-                    const i1 = Math.min(i0 + 1, Ntheta - 1);
-                    const tx = iFloat - i0;
+                    for (let px = 0; px < plotW; px++) {
+                        const iFloat = (px / (plotW - 1)) * (Ntheta - 1);
+                        const i0 = Math.floor(iFloat);
+                        const i1 = Math.min(i0 + 1, Ntheta - 1);
+                        const tx = iFloat - i0;
 
-                    const p00 = pSorted[i0][j0];
-                    const p10 = pSorted[i1][j0];
-                    const p01 = pSorted[i0][j1];
-                    const p11 = pSorted[i1][j1];
+                        const p00 = pSorted[i0][j0];
+                        const p10 = pSorted[i1][j0];
+                        const p01 = pSorted[i0][j1];
+                        const p11 = pSorted[i1][j1];
 
-                    const pTop = p00 * (1 - tx) + p10 * tx;
-                    const pBot = p01 * (1 - tx) + p11 * tx;
-                    const val = pTop * (1 - ty) + pBot * ty;
+                        const pTop = p00 * (1 - tx) + p10 * tx;
+                        const pBot = p01 * (1 - tx) + p11 * tx;
+                        const val = pTop * (1 - ty) + pBot * ty;
 
-                    // normalised 0..1
-                    const t = (val - pMin) / (pMax - pMin);
-                    const [r, g, b] = colormap(t);
+                        const t = (val - pMin) / (pMax - pMin);
+                        const [r, g, b] = colormap(t);
 
-                    const idx = 4 * (py * plotW + px);
-                    img.data[idx] = r;
-                    img.data[idx + 1] = g;
-                    img.data[idx + 2] = b;
-                    img.data[idx + 3] = 255;
+                        const idx = 4 * (py * plotW + px);
+                        img.data[idx] = r;
+                        img.data[idx + 1] = g;
+                        img.data[idx + 2] = b;
+                        img.data[idx + 3] = 255;
+                    }
                 }
-            }
 
-            // draw heatmap into plot area
-            ctx.putImageData(img, leftMargin, topMargin);
+                ctx.putImageData(img, leftMargin, topMargin);
 
-            // ---------- Axes ----------
-            ctx.strokeStyle = "#e5e7eb";
-            ctx.lineWidth = 1.0;
-
-            // x-axis
-            ctx.beginPath();
-            ctx.moveTo(leftMargin, H - bottomMargin);
-            ctx.lineTo(leftMargin + plotW, H - bottomMargin);
-            ctx.stroke();
-
-            // y-axis
-            ctx.beginPath();
-            ctx.moveTo(leftMargin, topMargin);
-            ctx.lineTo(leftMargin, H - bottomMargin);
-            ctx.stroke();
-
-            ctx.fillStyle = "#f9fafb";  // light text on dark background
-            ctx.font = "12px system-ui";
-
-            // θ ticks: -180, -90, 0, 90, 180
-            const ticksX = [-180, -90, 0, 90, 180];
-            ticksX.forEach(val => {
-                const tx = (val + 180) / 360;              // map −180..180 → 0..1
-                const x = leftMargin + tx * plotW;
-                const y = H - bottomMargin;
+                ctx.strokeStyle = "#e5e7eb";
+                ctx.lineWidth = 1.0;
 
                 ctx.beginPath();
-                ctx.moveTo(x, y);
-                ctx.lineTo(x, y + 5);
+                ctx.moveTo(leftMargin, H - bottomMargin);
+                ctx.lineTo(leftMargin + plotW, H - bottomMargin);
                 ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(leftMargin, topMargin);
+                ctx.lineTo(leftMargin, H - bottomMargin);
+                ctx.stroke();
+
+                ctx.fillStyle = "#f9fafb";
+                ctx.font = "12px system-ui";
+
+                const ticksX = [-180, -90, 0, 90, 180];
+                ticksX.forEach(val => {
+                    const tx = (val + 180) / 360;
+                    const x = leftMargin + tx * plotW;
+                    const y = H - bottomMargin;
+
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x, y + 5);
+                    ctx.stroke();
+
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "top";
+                    ctx.fillText(val.toString(), x, y + 7);
+                });
+
+                const zMin = z[0];
+                const zMax = z[z.length - 1];
+                const ticksZ = [zMin];
+                if (zMin < 0 && zMax > 0) ticksZ.push(0);
+                ticksZ.push(zMax);
+
+                ticksZ.forEach(val => {
+                    const ty = (val - zMin) / (zMax - zMin);
+                    const y = (H - bottomMargin) - ty * plotH;
+                    const x = leftMargin;
+
+                    ctx.beginPath();
+                    ctx.moveTo(x - 5, y);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+
+                    ctx.textAlign = "right";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText(val.toFixed(3), x - 8, y);
+                });
+
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                ctx.fillText("θ [deg]", leftMargin + plotW / 2, H - 4);
+
+                ctx.save();
+                ctx.translate(4, canvas.height / 2 - 10);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.fillText("z [m]", 0, 0);
+                ctx.restore();
+
+                ctx.strokeStyle = "#e5e7eb";
+                ctx.strokeRect(colorBarX, colorBarY, colorBarWidth, plotH);
+
+                const cbImg = ctx.createImageData(colorBarWidth, plotH);
+                for (let py = 0; py < plotH; py++) {
+                    const t = 1 - py / (plotH - 1);
+                    const [r, g, b] = colormap(t);
+                    for (let px = 0; px < colorBarWidth; px++) {
+                        const idx = 4 * (py * colorBarWidth + px);
+                        cbImg.data[idx] = r;
+                        cbImg.data[idx + 1] = g;
+                        cbImg.data[idx + 2] = b;
+                        cbImg.data[idx + 3] = 255;
+                    }
+                }
+                ctx.putImageData(cbImg, colorBarX, colorBarY);
+
+                ctx.fillStyle = "#f9fafb";
+                ctx.font = "11px system-ui";
+                ctx.textAlign = "left";
+                ctx.textBaseline = "middle";
+
+                const midP = 0.5 * (pMin + pMax);
+
+                ctx.fillText(pMax.toExponential(2) + " Pa", colorBarX + colorBarWidth + 4, colorBarY + 5);
+                ctx.fillText(midP.toExponential(2) + " Pa", colorBarX + colorBarWidth + 4, colorBarY + plotH / 2);
+                ctx.fillText(pMin.toExponential(2) + " Pa", colorBarX + colorBarWidth + 4, colorBarY + plotH - 5);
+
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                ctx.fillText("p [Pa]", colorBarX + colorBarWidth / 2, colorBarY - 2);
+            }
+
+            // ----------------------------------------
+            // 1) Bearing K, C, ε, p(θ,z)
+            // ----------------------------------------
+            runBtn.addEventListener("click", async () => {
+                const bearingType = document.getElementById("bearingType").value;
+                const fluidType = document.getElementById("fluidType").value;
+                const R = Number(document.getElementById("radius").value);
+                const L = Number(document.getElementById("length").value);
+                const c = Number(document.getElementById("clearance").value);
+                const n_rpm = Number(document.getElementById("speedRpm").value);
+                const W = Number(document.getElementById("load").value);
+                const mu = Number(document.getElementById("viscosity").value);
+
+                statusText.textContent = "Status: running…";
+
+                try {
+                    const diameter = 2 * R;
+                    const payload = {
+                        bearingType,
+                        fluidType,
+                        diameter,
+                        length: L,
+                        clearance: c,
+                        load: W,
+                        viscosity: mu,
+                        speed_rpm: n_rpm
+                    };
+
+                    const response = await fetch("http://127.0.0.1:5000/api/analyze", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error("Backend error: " + response.status);
+                    }
+
+                    const data = await response.json();
+
+                    const eps = data.eps;
+                    const K = data.K;
+                    const C = data.C;
+                    const theta = data.theta;
+                    const z = data.z;
+                    const p = data.p;
+
+                    document.getElementById("eccPill").textContent = "ε = " + fmt(eps);
+
+                    document.getElementById("k11").textContent = fmt(K[0][0]);
+                    document.getElementById("k12").textContent = fmt(K[0][1]);
+                    document.getElementById("k21").textContent = fmt(K[1][0]);
+                    document.getElementById("k22").textContent = fmt(K[1][1]);
+
+                    document.getElementById("c11").textContent = fmt(C[0][0]);
+                    document.getElementById("c12").textContent = fmt(C[0][1]);
+                    document.getElementById("c21").textContent = fmt(C[1][0]);
+                    document.getElementById("c22").textContent = fmt(C[1][1]);
+
+                    const pressureCanvas = document.getElementById("pressureCanvas");
+                    drawPressureFieldFromData(pressureCanvas, theta, z, p);
+
+                    statusText.textContent = "Status: analysis complete";
+                } catch (err) {
+                    console.error(err);
+                    statusText.textContent = "Status: error";
+                }
+            });
+
+            // ----------------------------------------
+            // 2) Critical speeds
+            // ----------------------------------------
+            criticalBtn.addEventListener("click", async () => {
+                criticalStatusText.textContent = "Status: running critical speed…";
+
+                try {
+                    const bearingSize =
+                        parseInt(document.getElementById("bearingSize").value, 10) || 2;
+
+                    const Kb = parseMatrixTextarea(
+                        document.getElementById("Kbearing").value,
+                        bearingSize
+                    );
+                    const Cb = parseMatrixTextarea(
+                        document.getElementById("Cbearing").value,
+                        bearingSize
+                    );
+
+                    const payload = {
+                        shaftLength: Number(document.getElementById("shaftLength").value),
+                        shaftDiameter: Number(document.getElementById("shaftDiameter").value),
+                        numElements: parseInt(document.getElementById("numElements").value, 10),
+                        numModes: 6,
+                        density: Number(document.getElementById("density").value),
+                        youngsModulus: Number(document.getElementById("youngsModulus").value),
+                        diskMass: Number(document.getElementById("diskMass").value),
+                        diskId: Number(document.getElementById("diskId").value),
+                        diskIp: Number(document.getElementById("diskIp").value),
+                        Kbearing: Kb,
+                        Cbearing: Cb,
+                        omegaMaxRpm: Number(document.getElementById("omegaMax").value)
+                    };
+
+                    const res = await fetch("http://127.0.0.1:5000/api/critical-speeds", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await res.json();
+
+                    // ---- Extract first 5 non-zero critical speeds ----
+                    const crit = data.critical_speeds_rpm || [];
+
+                    if (crit.length === 0) {
+                        criticalStatusText.textContent = "No non-zero critical speeds found.";
+                        return;
+                    }
+
+                    if (crit.length > 0) {
+                        criticalStatusText.textContent =
+                            "Critical speeds: " + crit.map(v => v.toFixed(1)).join(", ") + " rpm";
+                    }
+
+                    if (data.rotor_figure) {
+                        const fig = JSON.parse(data.rotor_figure);
+                        Plotly.newPlot("rotorPlot", fig.data, fig.layout);
+                    }
+
+                    // ---- Campbell plot ----
+                    if (data.rpm && data.freqs) {
+                        const canvas = document.getElementById("campbellCanvas");
+                        plotCampbell(canvas, data.rpm, data.freqs);
+                    }
+
+                    if (data.mode_shapes) {
+                        const canvas1 = document.getElementById("mode1Canvas");
+                        const canvas2 = document.getElementById("mode2Canvas");
+                        const canvas3 = document.getElementById("mode3Canvas");
+                        plotMode(canvas1, data.mode_shapes, 0); //canvas, data, mode index
+                        plotMode(canvas2, data.mode_shapes, 2);
+                        plotMode(canvas3, data.mode_shapes, 4);
+                    }
+
+                } catch (err) {
+                    console.error(err);
+                    criticalStatusText.textContent = "Error – check console.";
+                }
+            });
+
+            const friswellRotorBtn = document.getElementById("friswellRotorBtn");
+
+            friswellRotorBtn.addEventListener("click", () => {
+                // === Material / geometry ===
+                document.getElementById("density").value = "7810";
+                document.getElementById("youngsModulus").value = "211000000000";
+
+                document.getElementById("shaftLength").value = "1.5";
+                document.getElementById("shaftDiameter").value = "0.025";
+
+                // === Disk properties ===
+                document.getElementById("diskMass").value = "15.3";
+                document.getElementById("diskId").value = "0.062";
+                document.getElementById("diskIp").value = "0.120";
+
+                // === Discretization ===
+                document.getElementById("numElements").value = "6";
+                document.getElementById("numModes").value = "6";
+
+                // === Bearing case 5 ===
+                // Convert MN/m to N/m
+                const kxx = 0.2;  // 0.2 MN/m
+                const kyy = 0.4;  // 0.4 MN/m
+
+                document.getElementById("bearingSize").value = "2";
+
+                document.getElementById("Kbearing").value =
+                    `${kxx}, 0\n0, ${kyy}`;
+
+                document.getElementById("Cbearing").value =
+                    `0, 0\n0, 0`;
+
+                // === Speed range ===
+                document.getElementById("omegaMax").value = "3500";
+                document.getElementById("speedRpm").value = "0";
+
+                // Update system size display
+                const ne = parseInt(document.getElementById("numElements").value, 10);
+                const nodes = ne + 1;
+                const dofs = 4 * nodes;
+                document.getElementById("systemSizeLabel").textContent =
+                    `Nodes: ${nodes}, DOFs: ${dofs}`;
+
+                criticalStatusText.textContent =
+                    "Status: Friswell Case 5 loaded (ready to run)";
+            });
+
+            function plotCampbell(canvas, rpms, freqs) {
+                if (!canvas || !rpms || !freqs || rpms.length === 0 || freqs.length === 0) return;
+
+                const ctx = canvas.getContext("2d");
+
+                // ---- HiDPI / high-resolution setup ----
+                const ratio = window.devicePixelRatio || 1;
+                const rect = canvas.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) return;
+
+                // Set internal resolution and scale drawing to CSS pixels
+                canvas.width = rect.width * ratio;
+                canvas.height = rect.height * ratio;
+                ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+                const W = rect.width;
+                const H = rect.height;
+
+                ctx.clearRect(0, 0, W, H);
+
+                // Background
+                ctx.fillStyle = "#0f172a"; // dark, neutral
+                ctx.fillRect(0, 0, W, H);
+
+                // Plot margins
+                const left = 70, right = 30, top = 30, bottom = 60;
+                const pw = W - left - right;
+                const ph = H - top - bottom;
+                if (pw <= 0 || ph <= 0) return;
+
+                // ---- Data limits ----
+                const maxRpm = Math.max(...rpms);
+                const minRpm = 0; // assume from 0
+
+                // Flatten mode frequencies and include 1× line in vertical range
+                const flat = freqs.flat().filter(v => isFinite(v));
+                const fExc = rpms.map(r => r / 60.0);
+                const maxFreqData = flat.length ? Math.max(...flat) : 0;
+                const maxFreqExc = fExc.length ? Math.max(...fExc) : 0;
+                const maxFreq = Math.max(maxFreqData, maxFreqExc, 1e-3); // avoid zero
+
+                // Axis mapping
+                const X = r => left + ((r - minRpm) / (maxRpm - minRpm)) * pw;
+                const Y = f => top + ph - (f / maxFreq) * ph;
+
+                // ---- Axes, ticks, and grid ----
+                ctx.strokeStyle = "#e5e7eb";
+                ctx.lineWidth = 1;
+
+                // Axes
+                ctx.beginPath();
+                ctx.moveTo(left, top);
+                ctx.lineTo(left, top + ph);
+                ctx.lineTo(left + pw, top + ph);
+                ctx.stroke();
+
+                // Tick helpers
+                const nTicksX = 6;
+                const nTicksY = 5;
+
+                // X ticks (rpm)
+                ctx.fillStyle = "#e5e7eb";
+                ctx.font = "11px system-ui";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+
+                const xStep = maxRpm / nTicksX;
+                ctx.setLineDash([3, 4]); // vertical grid
+                ctx.strokeStyle = "rgba(148, 163, 184, 0.5)";
+
+                for (let i = 0; i <= nTicksX; i++) {
+                    const r = i * xStep;
+                    const xx = X(r);
+
+                    // Grid line
+                    ctx.beginPath();
+                    ctx.moveTo(xx, top);
+                    ctx.lineTo(xx, top + ph);
+                    ctx.stroke();
+
+                    // Tick + label
+                    ctx.setLineDash([]); // short tick
+                    ctx.beginPath();
+                    ctx.moveTo(xx, top + ph);
+                    ctx.lineTo(xx, top + ph + 5);
+                    ctx.stroke();
+
+                    ctx.fillText(r.toFixed(0), xx, top + ph + 8);
+                    ctx.setLineDash([3, 4]); // restore grid dash
+                }
+
+                // Y ticks (frequency)
+                ctx.textAlign = "right";
+                ctx.textBaseline = "middle";
+                const yStep = maxFreq / nTicksY;
+
+                ctx.setLineDash([3, 4]); // horizontal grid
+                ctx.strokeStyle = "rgba(148, 163, 184, 0.5)";
+
+                for (let i = 0; i <= nTicksY; i++) {
+                    const f = i * yStep;
+                    const yy = Y(f);
+
+                    // Grid line
+                    ctx.beginPath();
+                    ctx.moveTo(left, yy);
+                    ctx.lineTo(left + pw, yy);
+                    ctx.stroke();
+
+                    // Tick + label
+                    ctx.setLineDash([]); // short tick
+                    ctx.beginPath();
+                    ctx.moveTo(left - 5, yy);
+                    ctx.lineTo(left, yy);
+                    ctx.stroke();
+
+                    ctx.fillText(f.toFixed(1), left - 8, yy);
+                    ctx.setLineDash([3, 4]); // restore grid dash
+                }
+
+                ctx.setLineDash([]);
+
+                // ---- 1× excitation line ----
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 4]);
+
+                ctx.beginPath();
+                rpms.forEach((r, i) => {
+                    const f = r / 60.0;
+                    const xx = X(r);
+                    const yy = Y(f);
+                    if (i === 0) ctx.moveTo(xx, yy);
+                    else ctx.lineTo(xx, yy);
+                });
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // ---- Mode branches ----
+                const colours = ["#34d399", "#60a5fa", "#f472b6", "#facc15", "#fb7185", "#a78bfa"];
+                const nModes = freqs[0].length;
+
+                ctx.lineWidth = 1.8;
+
+                for (let m = 0; m < nModes; m++) {
+                    ctx.strokeStyle = colours[m % colours.length];
+                    ctx.beginPath();
+                    let started = false;
+
+                    rpms.forEach((r, i) => {
+                        const row = freqs[i];
+                        if (!row || m >= row.length) return;
+                        const f = row[m];
+                        if (!isFinite(f)) return;
+                        const xx = X(r);
+                        const yy = Y(f);
+                        if (!started) {
+                            ctx.moveTo(xx, yy);
+                            started = true;
+                        } else {
+                            ctx.lineTo(xx, yy);
+                        }
+                    });
+
+                    ctx.stroke();
+                }
+
+                // ---- Axis labels ----
+                ctx.fillStyle = "#e5e7eb";
+                ctx.font = "12px system-ui";
+
+                // X label
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.fillText("Rotor speed Ω [rpm]", left + pw / 2, H - bottom + 28);
+
+                // Y label
+                ctx.save();
+                ctx.translate(18, top + ph / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                ctx.fillText("Frequency [Hz]", 0, 0);
+                ctx.restore();
+
+                // ---- Legend ----
+                const legendX = left + pw - 140;
+                const legendY = top + 10;
+                const lineLen = 18;
+                const lineGap = 16;
+
+                ctx.font = "11px system-ui";
+                ctx.textAlign = "left";
+                ctx.textBaseline = "middle";
+
+                // 1×
+                let ly = legendY;
+                ctx.strokeStyle = "#ffffff";
+                ctx.setLineDash([6, 4]);
+                ctx.beginPath();
+                ctx.moveTo(legendX, ly);
+                ctx.lineTo(legendX + lineLen, ly);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillText("1× rotational speed", legendX + lineLen + 6, ly);
+
+                // Modes
+                for (let m = 0; m < nModes; m++) {
+                    ly += lineGap;
+                    ctx.strokeStyle = colours[m % colours.length];
+                    ctx.beginPath();
+                    ctx.moveTo(legendX, ly);
+                    ctx.lineTo(legendX + lineLen, ly);
+                    ctx.stroke();
+                    ctx.fillText(`Mode ${m + 1}`, legendX + lineLen + 6, ly);
+                }
+            }
+
+            // ----------------------------------------
+            // 3) Friswell presets (bearing section)
+            // ----------------------------------------
+            friswellBtn.addEventListener("click", () => {
+                const diameter = 0.1;
+                const length = 0.03;
+                const load = 525;
+                const clearance = 0.1e-3;
+                const viscosity = 0.1;
+                const speed_rpm = 1500;
+
+                const radius = diameter / 2;
+
+                document.getElementById("radius").value = radius;
+                document.getElementById("length").value = length;
+                document.getElementById("clearance").value = clearance;
+                document.getElementById("load").value = load;
+                document.getElementById("viscosity").value = viscosity;
+                document.getElementById("speedRpm").value = speed_rpm;
+
+                statusText.textContent = "Status: Friswell example loaded";
+            });
+
+            document.getElementById("exportBtn").addEventListener("click", () => {
+                window.print();
+            });
+
+            drawPressureFieldFromData(
+                document.getElementById("pressureCanvas"),
+                [0, 1],
+                [0, 1],
+                [[0, 0], [0, 0]]
+            );
+
+            function plotMode(canvas, modeShapes, modeIndex) {
+                if (!canvas || !modeShapes || modeShapes.length === 0) return;
+                if (modeIndex < 0 || modeIndex >= modeShapes.length) return;
+
+                const shape = modeShapes[modeIndex];
+                const x = shape.x;   // axial coords [m]
+                const wy = shape.wy; // y-plane mode shape (possibly already normalized)
+
+                if (!x || !wy || x.length === 0 || wy.length === 0) return;
+
+                const ctx = canvas.getContext("2d");
+
+                // ---- HiDPI / high-resolution setup ----
+                const ratio = window.devicePixelRatio || 1;
+                const rect = canvas.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) return;
+
+                // Internal resolution in device pixels; drawing in CSS pixels
+                canvas.width = rect.width * ratio;
+                canvas.height = rect.height * ratio;
+                ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+                const W = rect.width;
+                const H = rect.height;
+
+                ctx.clearRect(0, 0, W, H);
+
+                // Background
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, 0, W, H);
+
+                // Margins
+                const left = 60, right = 20, top = 25, bottom = 45;
+                const pw = W - left - right;
+                const ph = H - top - bottom;
+                if (pw <= 0 || ph <= 0) return;
+
+                // Data extents in x
+                let xMin = Math.min(...x);
+                let xMax = Math.max(...x);
+                if (!isFinite(xMin) || !isFinite(xMax) || xMax === xMin) return;
+
+                // Normalize wy to [-1, 1] for pure shape plotting
+                const maxAbs = Math.max(...wy.map(v => Math.abs(v)), 1e-12);
+                const wyNorm = wy.map(v => v / maxAbs);
+
+                // Keep waveform away from canvas edges: ±0.45 of plot height
+                const centerY = top + ph / 2;
+                const halfSpan = ph * 0.45; // leaves 5% margin top/bottom
+
+                // Mapping functions
+                const X = s => left + ((s - xMin) / (xMax - xMin)) * pw;
+                const Y = vn => centerY - vn * halfSpan; // vn in [-1,1]
+
+                // ---- Grid and axes ----
+                ctx.strokeStyle = "#e5e7eb";
+                ctx.lineWidth = 1;
+
+                // Outer frame
+                ctx.strokeRect(left, top, pw, ph);
+
+                // Light vertical grid at nodal positions
+                ctx.setLineDash([3, 4]);
+                ctx.strokeStyle = "#e5e7eb";
+                ctx.beginPath();
+                for (let i = 0; i < x.length; i++) {
+                    const xx = X(x[i]);
+                    ctx.moveTo(xx, top);
+                    ctx.lineTo(xx, top + ph);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Undeformed shaft axis (y = 0)
+                ctx.strokeStyle = "#9ca3af";
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(left, centerY);
+                ctx.lineTo(left + pw, centerY);
+                ctx.stroke();
+
+                // ---- Mode shape curve (y-plane) ----
+                ctx.strokeStyle = "#111827";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                for (let i = 0; i < x.length; i++) {
+                    const xx = X(x[i]);
+                    const yy = Y(wyNorm[i]);
+                    if (i === 0) ctx.moveTo(xx, yy);
+                    else ctx.lineTo(xx, yy);
+                }
+                ctx.stroke();
+
+                // Node markers
+                ctx.fillStyle = "#111827";
+                for (let i = 0; i < x.length; i++) {
+                    const xx = X(x[i]);
+                    const yy = Y(wyNorm[i]);
+                    ctx.beginPath();
+                    ctx.arc(xx, yy, 2.2, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+
+                // ---- Axes ticks & labels (x only, y is shape-only) ----
+                ctx.fillStyle = "#111827";
+                ctx.font = "11px system-ui";
+
+                // X-axis ticks at min, mid, max
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+
+                const xTicks = [xMin, 0.5 * (xMin + xMax), xMax];
+                xTicks.forEach(val => {
+                    const xx = X(val);
+                    const yy = top + ph;
+                    // Tick
+                    ctx.beginPath();
+                    ctx.moveTo(xx, yy);
+                    ctx.lineTo(xx, yy + 5);
+                    ctx.strokeStyle = "#4b5563";
+                    ctx.stroke();
+                    // Label
+                    ctx.fillText(val.toFixed(2), xx, yy + 7);
+                });
+
+                // X-axis label
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.fillText(
+                    "Axial position along rotor [m]",
+                    left + pw / 2,
+                    H - bottom + 22
+                );
+
+                // Y label (no numeric ticks)
+                ctx.save();
+                ctx.translate(18, top + ph / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                ctx.fillText("shape (normalized)", 0, 0);
+                ctx.restore();
+
+                // ---- Title: Mode and rpm (if available) ----
+                const modeLabel = shape.mode != null ? shape.mode : (modeIndex + 1);
+                const rpmLabel = shape.rpm != null && isFinite(shape.rpm)
+                    ? `${shape.rpm.toFixed(0)} rpm`
+                    : "";
+                const title = rpmLabel
+                    ? `Mode ${modeLabel} at ${rpmLabel}`
+                    : `Mode ${modeLabel}`;
 
                 ctx.textAlign = "center";
                 ctx.textBaseline = "top";
-                ctx.fillText(val.toString(), x, y + 7);
-            });
-
-            // z ticks: zMin, maybe 0, zMax
-            const zMin = z[0];
-            const zMax = z[z.length - 1];
-            const ticksZ = [zMin];
-            if (zMin < 0 && zMax > 0) ticksZ.push(0);
-            ticksZ.push(zMax);
-
-            ticksZ.forEach(val => {
-                const ty = (val - zMin) / (zMax - zMin);   // 0..1
-                const y = (H - bottomMargin) - ty * plotH;
-                const x = leftMargin;
-
-                ctx.beginPath();
-                ctx.moveTo(x - 5, y);
-                ctx.lineTo(x, y);
-                ctx.stroke();
-
-                ctx.textAlign = "right";
-                ctx.textBaseline = "middle";
-                ctx.fillText(val.toFixed(3), x - 8, y);
-            });
-
-            // Axis labels
-            ctx.textAlign = "center";
-            ctx.textBaseline = "bottom";
-            ctx.fillText("θ [deg]", leftMargin + plotW / 2, H - 4);
-
-            ctx.save();
-            ctx.translate(4, canvas.height / 2 - 10);
-            ctx.rotate(-Math.PI / 2);
-            ctx.textAlign = "center";
-            ctx.textBaseline = "top";
-            ctx.fillText("z [m]", 0, 0);
-            ctx.restore();
-
-            // ---------- Color bar (pressure level) ----------
-            // Draw color bar frame
-            ctx.strokeStyle = "#e5e7eb";
-            ctx.strokeRect(colorBarX, colorBarY, colorBarWidth, plotH);
-
-            const cbImg = ctx.createImageData(colorBarWidth, plotH);
-            for (let py = 0; py < plotH; py++) {
-                // top = pMax, bottom = pMin
-                const t = 1 - py / (plotH - 1);
-                const [r, g, b] = colormap(t);
-                for (let px = 0; px < colorBarWidth; px++) {
-                    const idx = 4 * (py * colorBarWidth + px);
-                    cbImg.data[idx] = r;
-                    cbImg.data[idx + 1] = g;
-                    cbImg.data[idx + 2] = b;
-                    cbImg.data[idx + 3] = 255;
-                }
+                ctx.font = "12px system-ui";
+                ctx.fillText(title, left + pw / 2, 6);
             }
-            ctx.putImageData(cbImg, colorBarX, colorBarY);
 
-            // Pressure labels at top, middle, bottom
-            ctx.fillStyle = "#f9fafb";
-            ctx.font = "11px system-ui";
-            ctx.textAlign = "left";
-            ctx.textBaseline = "middle";
+        </script>
 
-            const midP = 0.5 * (pMin + pMax);
-
-            ctx.fillText(pMax.toExponential(2) + " Pa", colorBarX + colorBarWidth + 4, colorBarY + 5);
-            ctx.fillText(midP.toExponential(2) + " Pa", colorBarX + colorBarWidth + 4, colorBarY + plotH / 2);
-            ctx.fillText(pMin.toExponential(2) + " Pa", colorBarX + colorBarWidth + 4, colorBarY + plotH - 5);
-
-            // Color bar title
-            ctx.textAlign = "center";
-            ctx.textBaseline = "bottom";
-            ctx.fillText("p [Pa]", colorBarX + colorBarWidth / 2, colorBarY - 2);
-        }
-
-
-
-        document.getElementById("friswellBtn").addEventListener("click", () => {
-            // Friswell example values
-            const diameter = 0.1;      // m
-            const length = 0.03;     // m
-            const load = 525;      // N
-            const clearance = 0.1e-3;   // m
-            const viscosity = 0.1;      // Pa·s
-            const speed_rpm = 1500;     // rpm
-
-            // Your UI uses radius, not diameter
-            const radius = diameter / 2;
-
-            // Populate inputs
-            document.getElementById("radius").value = radius;
-            document.getElementById("length").value = length;
-            document.getElementById("clearance").value = clearance;
-            document.getElementById("load").value = load;
-            document.getElementById("viscosity").value = viscosity;
-            document.getElementById("speedRpm").value = speed_rpm;
-
-            // Optional status update
-            document.getElementById("statusText").textContent = "Status: Friswell example loaded";
-        });
-
-        document.getElementById("runBtn").addEventListener("click", async () => {
-            const bearingType = document.getElementById("bearingType").value;
-            const fluidType = document.getElementById("fluidType").value;
-            const R = Number(document.getElementById("radius").value);
-            const L = Number(document.getElementById("length").value);
-            const c = Number(document.getElementById("clearance").value);
-            const n_rpm = Number(document.getElementById("speedRpm").value);
-            const W = Number(document.getElementById("load").value);
-            const mu = Number(document.getElementById("viscosity").value);
-
-
-            const status = document.getElementById("statusText");
-            status.textContent = "Status: running…";
-
-            try {
-                const diameter = 2 * R;
-                const payload = {
-                    bearingType,
-                    fluidType,
-                    diameter,
-                    length: L,
-                    clearance: c,
-                    load: W,
-                    viscosity: mu,
-                    speed_rpm: n_rpm,
-
-                };
-
-                const response = await fetch("http://127.0.0.1:5000/api/analyze", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-
-                if (!response.ok) {
-                    throw new Error("Backend error: " + response.status);
-                }
-
-                const data = await response.json();
-
-                const eps = data.eps;
-
-                const K = data.K;
-                const C = data.C;
-                const theta = data.theta;
-                const z = data.z;
-                const p = data.p;
-
-                document.getElementById("eccPill").textContent = "ε = " + fmt(eps);
-
-                // updateRegimePill(eps, fluidType);
-
-                document.getElementById("k11").textContent = fmt(K[0][0]);
-                document.getElementById("k12").textContent = fmt(K[0][1]);
-                document.getElementById("k21").textContent = fmt(K[1][0]);
-                document.getElementById("k22").textContent = fmt(K[1][1]);
-
-                document.getElementById("c11").textContent = fmt(C[0][0]);
-                document.getElementById("c12").textContent = fmt(C[0][1]);
-                document.getElementById("c21").textContent = fmt(C[1][0]);
-                document.getElementById("c22").textContent = fmt(C[1][1]);
-
-                const pressureCanvas = document.getElementById("pressureCanvas");
-                drawPressureFieldFromData(pressureCanvas, theta, z, p);
-
-                //const rotorModel = document.getElementById("rotorModel").value;
-                // const stabilityCanvas = document.getElementById("stabilityCanvas");
-                // drawStabilityMap(stabilityCanvas, rotorModel, eps);
-
-                status.textContent = "Status: analysis complete";
-            } catch (err) {
-                console.error(err);
-                status.textContent = "Status: error";
-            }
-        });
-
-        // document.getElementById("rotorModel").addEventListener("change", () => {
-        //     const rotorModel = document.getElementById("rotorModel").value;
-        //     const eccText = document.getElementById("eccPill").textContent;
-        //     const eps = parseFloat(eccText.split("=").pop()) || 0.3;
-        //     const stabilityCanvas = document.getElementById("stabilityCanvas");
-        //     drawStabilityMap(stabilityCanvas, rotorModel, eps);
-        // });
-
-        document.getElementById("exportBtn").addEventListener("click", () => {
-            window.print();
-        });
-
-        drawPressureFieldFromData(
-            document.getElementById("pressureCanvas"),
-            [0, 1],
-            [0, 1],
-            [[0, 0], [0, 0]]
-        );
-        // drawStabilityMap(document.getElementById("stabilityCanvas"), "none", 0.3);
-
-    </script>
 
 </body>
 
