@@ -204,7 +204,7 @@ def add_bearing_matrices_user(C, K, Kb, Cb, node, Nn):
 # =========================================================
 def eigenfrequencies(M, C, K, G=None, imag_tol=1e-6, uniq_tol=1e-3):
     """
-    Damped natural frequencies (Hz) at Ω = 0 from
+    Damped natural frequencies (Hz) at Ω = 0 (no gyroscopic effect) from
 
         M q¨ + (C + G) q˙ + K q = 0
     """
@@ -249,7 +249,7 @@ def eigenfrequencies(M, C, K, G=None, imag_tol=1e-6, uniq_tol=1e-3):
 def eigenfrequencies_speed(M, C, K, G_base, Omega,
                            imag_tol=1e-6, uniq_tol=1e-3):
     """
-    Damped natural frequencies (Hz) at a given spin speed Ω [rad/s] from
+    Damped natural frequencies (Hz) at a given spin speed Ω [rad/s] (with gyroscopic effect) from
 
         M q¨ + (C + Ω G_base) q˙ + K q = 0
     """
@@ -292,7 +292,7 @@ def eigenfrequencies_speed(M, C, K, G_base, Omega,
 # ------------------------------------------------------------
 # 2) FE assembly: Euler–Bernoulli shaft in two planes
 # ------------------------------------------------------------
-
+# Mode shapes were obtained with Euler-Bernoulli beam formulation.
 def euler_bernoulli_element_mk(E, I, rhoA, L):
     L2 = L*L
     L3 = L2*L
@@ -352,6 +352,7 @@ def assemble_shaft_mk(num_elements, L_total, E, I, rhoA):
 
 
 def add_disc(M, Nn, node_disc, m_disc, Id):
+    # Adds a mass into the system matrix
     M_new = M.copy()
 
     dof_x = 2*node_disc                # x translation
@@ -369,8 +370,7 @@ def add_disc(M, Nn, node_disc, m_disc, Id):
 
 def add_disk_gyroscopic(G, Nn, node_disc, Ip):
     """
-    Disk gyroscopic matrix at node_disc.
-    Couples bending rotations θx and θy with polar inertia Ip.
+    Adds the gyroscopic effects for the given node and polar inertia
     """
     G_new = G.copy()
 
@@ -384,6 +384,9 @@ def add_disk_gyroscopic(G, Nn, node_disc, Ip):
 
 
 def add_bearing_matrices(C, K, bearing_left, bearing_right, node_left, node_right, Nn):
+    '''
+    Incorporates bearing stiffnesses and damping parameters into the system matrices
+    '''
     C_new = C.copy()
     K_new = K.copy()
 
@@ -409,7 +412,8 @@ def add_bearing_matrices(C, K, bearing_left, bearing_right, node_left, node_righ
 
 def eigs_at_speed(M, C, K, G_base, Omega, imag_tol=1e-6):
     """
-    Eigenvalues s at given spin speed Ω [rad/s] for
+    Direct approach.
+    Calculates eigenvalues s at given spin speed Ω [rad/s] for
 
         M q¨ + (C + Ω G_base) q˙ + K q = 0
 
@@ -490,6 +494,8 @@ def iterative_critical_speeds(M, C, K, G_base,
 
 def modes_at_speed(M, C, K, G_base, Omega, imag_tol=1e-6):
     """
+    Direct approach. Identical to eigs_at_speed but also returns eigenvectors V.
+    
     Eigenvalues s and eigenvectors V at spin speed Ω [rad/s] for
 
         M q¨ + (C + Ω G_base) q˙ + K q = 0  →  x˙ = A x
@@ -517,6 +523,9 @@ def modes_at_speed(M, C, K, G_base, Omega, imag_tol=1e-6):
 
 
 def mode_shape_data(M, C, K, G_base, Nn, L_total, mode_index, rpm):
+    '''
+    Calculates the mode shapes for the front-end plotting.
+    '''
     Omega = 2.0 * np.pi * rpm / 60.0
     s, V = modes_at_speed(M, C, K, G_base, Omega)
 
@@ -553,6 +562,9 @@ def mode_shape_data(M, C, K, G_base, Nn, L_total, mode_index, rpm):
 
 
 def fig_to_base64(fig):
+    '''
+    Transforms a fig object (Ross figure) into base64 encoding.
+    '''
     buf = io.BytesIO()
     buf.write(fig.to_image(format="png", scale=2))
     buf.seek(0)
@@ -563,7 +575,7 @@ def fig_to_base64(fig):
 # API route
 # =========================================================
 
-
+# Analyze for bearing calculations and pressure distribution
 @app.route("/api/analyze", methods=["POST", "OPTIONS"])
 def api_analyze():
     if request.method == "OPTIONS":
@@ -749,7 +761,7 @@ def critical():
         "cyy": Cb[1][1],
     }
 
-    # ---- Build model (matches your working reference) ----
+    # ---- Build model  ----
     A = np.pi * dshaft**2 / 4
     I = np.pi * dshaft**4 / 64
     rhoA = rho * A
@@ -785,7 +797,7 @@ def critical():
         mcount = min(n_modes, len(f))
         freqs[i, :mcount] = f[:mcount]
 
-    # ---- Critical speeds (correct method) ----
+    # ---- Critical speeds ----
     rpm_ref = 1000.0
     Omega_ref = 2.0 * np.pi * rpm_ref / 60.0
     f_ref = eigenfrequencies_speed(
@@ -802,7 +814,7 @@ def critical():
         rel_tol=1e-6
     )
 
-    # ---- MODE SHAPES FOR EACH CRITICAL SPEED ----
+    # ---- Mode shapes for each critical speed----
     mode_shapes = []
 
     for i, rpm_c in enumerate(Omega_crit_rpm):
@@ -841,7 +853,8 @@ def critical():
             "wy": wy_n
         })
 
-    # ---- ROSS rotor image (only this extra) ----
+    # ---- ROSS rotor image ----
+    # Model the system in ROSS
     steel = rs.Material(name="Steel", rho=rho, E=E, G_s=E / 2.6)
 
     Le = L / ne
@@ -885,10 +898,10 @@ def critical():
         disk_elements=[disk],
         bearing_elements=[bearingL, bearingR],
     )
-
+    # Get the plot
     fig_rotor = rotor.plot_rotor()
-    # rotor_img = fig_to_base64(fig_rotor)
-
+    
+    # jsnonify for structured backend-fronted interaction 
     return jsonify({
         "rpm": rpm.tolist(),
         "freqs": freqs.tolist(),
